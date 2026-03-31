@@ -9,12 +9,18 @@ function montarRequestObsHanzi(listaPalavras) {
   // COLOQUE O SEU MODELO AQUI
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${API_KEY}`;
 
-const prompt = `Você é um etimologista e professor de cultura chinesa.
+  const prompt = `Você é um etimologista e professor de cultura chinesa.
   Abaixo enviarei um JSON com uma lista de palavras (Hanzi e Pinyin). Sua tarefa é gerar uma observação detalhada para cada palavra.
 
   REGRA DE QUANTIDADE (CRÍTICO):
   Estou enviando exatamente ${listaPalavras.length} palavras. Você DEVE processar todas e retornar um array JSON com EXATAMENTE ${listaPalavras.length} objetos. Não pare até terminar todas!
 
+  REGRAS DE LINGUAGEM E TOM (MUITO IMPORTANTE):
+  1. Use EXCLUSIVAMENTE o Português do Brasil (pt-BR) moderno, cotidiano, direto e simples.
+  2. NÃO use termos acadêmicos, literatura poética, palavras rebuscadas ou traduções literais estranhas.
+  3. Seja didático. Exemplo: NUNCA use o jargão "piedade filial" (que não faz sentido no dia a dia brasileiro). Em vez disso, explique de forma clara como "respeito profundo aos pais e antepassados".
+  4. Evite textos verbosos. Vá direto ao ponto com vocabulário comum.
+  
   ESTRUTURA DA RESPOSTA:
   Você deve estruturar a resposta usando os blocos abaixo, sempre separados por duplas quebras de linha (\\n\\n):
 
@@ -25,16 +31,19 @@ const prompt = `Você é um etimologista e professor de cultura chinesa.
   🌟 Curiosidades Culturais:
   [Contexto cultural chinês relevante sobre o uso da palavra]
 
-  Blocos OPCIONAIS (Use APENAS se houver relevância real. Não "encha linguiça"): 
-  🆚 Similaridades:
-  [SÓ INCLUA se houver outra palavra no HSK que cause confusão real e comum nos alunos, ex: 客人 vs 顾客. Se a palavra for clara e sem ambiguidades, OMITA ESTE BLOCO COMPLETAMENTE].
+  Blocos OPCIONAIS (Use APENAS se houver relevância real. Não "encha linguiça"):
+  ⚖️ Similaridades:
+  [SÓ INCLUA se houver outra palavra no HSK que cause confusão real e comum nos alunos. Se a palavra for clara, OMITA ESTE BLOCO].
 
   💡 Dica de Memorização:
-  [SÓ INCLUA se você tiver uma mnemônica visual ou lógica genuinamente inteligente e útil. Se for uma palavra muito simples ou não houver um bom truque, OMITA ESTE BLOCO COMPLETAMENTE].
+  [SÓ INCLUA se você tiver uma mnemônica visual ou lógica genuinamente inteligente e útil. Se for simples, OMITA ESTE BLOCO].
 
-  REGRAS DE FORMATAÇÃO:
+  REGRAS DE FORMATAÇÃO (SIGA À RISCA):
   1. Use "\\n\\n" para separar os parágrafos e os blocos. Nunca use tags HTML.
   2. Não use negrito (**) ou itálico (*) do Markdown, retorne texto limpo.
+  3. REGRA DO HANZI/PINYIN: SEMPRE que mencionar um caractere chinês, palavra ou radical no meio da sua explicação, você DEVE escrever o Hanzi seguido do Pinyin com os acentos de tom corretos entre parênteses.
+     - Exemplo ERRADO: Combinacao de ai (amor) e hao (bom). O radical nu (mulher)...
+     - Exemplo CORRETO: Combinação de 爱 (ài) (amor) e 好 (hào) (bom). O radical 女 (nǚ) (mulher)...
   
   DADOS DE ENTRADA:
   ${JSON.stringify(listaPalavras)}

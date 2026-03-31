@@ -59,8 +59,19 @@ function gerarPinyinNumerico() {
   // 3. O GRANDE DISPARO PARALELO (Magia acontece aqui)
   let respostas = [];
   if (requisoesParalelas.length > 0) {
-    console.log(`Disparando ${requisoesParalelas.length} requisições de API SIMULTANEAMENTE...`);
-    respostas = UrlFetchApp.fetchAll(requisoesParalelas);
+    console.log(`🚀 Disparando ${requisoesParalelas.length} requisições de API SIMULTANEAMENTE...`);
+    const tempoInicioFetch = new Date(); 
+    
+    try {
+      respostas = UrlFetchApp.fetchAll(requisoesParalelas);
+      
+      const tempoFimFetch = new Date(); 
+      console.log(`⏱️ SUCESSO! Requisições voltaram em ${((tempoFimFetch - tempoInicioFetch) / 1000).toFixed(2)} segundos!`);
+    } catch (erroDeRede) {
+      console.log(`⚠️ Falha temporária de rede no Google: ${erroDeRede.message}`);
+      console.log("Por favor, clique para rodar novamente nas mesmas linhas.");
+      return; // Interrompe o script de forma limpa sem quebrar a planilha
+    }
   }
 
   // 4. PROCESSAMENTO E GRAVAÇÃO DAS RESPOSTAS
@@ -97,6 +108,17 @@ function gerarPinyinNumerico() {
       aba.getRange(linhaInicial, 8, tamanhoDoLote, 1).setValues(valores.map(linha => [linha[5]]));
     }
   }
+
+  // --- 5. GRAVA AS FÓRMULAS NA COLUNA G ---
+  let matrizFormulas = [];
+  for (let idx = 0; idx < tamanhoDoLote; idx++) {
+    let linhaAtual = linhaInicial + idx;
+    // Monta a fórmula dinamicamente (Ex: =SUBSTITUTE(F3, CHAR(10), "<br>"))
+    let formula = `=SUBSTITUTE(F${linhaAtual}; CHAR(10); "<br>")`;
+    matrizFormulas.push([formula]);
+  }
+  // Despeja na Coluna G (índice 7)
+  aba.getRange(linhaInicial, 7, tamanhoDoLote, 1).setFormulas(matrizFormulas);
 
   const fim = new Date();
   console.log(`Lote finalizado em ${((fim - inicio) / 1000).toFixed(2)}s`);

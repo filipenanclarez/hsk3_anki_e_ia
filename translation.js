@@ -1,34 +1,38 @@
 /**
- * Módulo de Tradução Restrita ao HSK 3.0
+ * Módulo de Tradução em Lote - Restrito ao HSK 3.0 Nível 2
  */
-
-function obterTraducaoHSK2(hanzi, pinyin) {
+function obterTraducoesEmLoteHSK2(listaPalavras) {
   const API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${API_KEY}`;
+  // Usando o gemini-1.5-flash-latest para garantir estabilidade
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${API_KEY}`;
 
   const prompt = `Você é um professor de Mandarim especialista no currículo do Novo HSK 3.0.
-  Sua tarefa é fornecer a tradução da palavra "${hanzi}" (${pinyin}).
+  Abaixo enviarei um JSON com uma lista de palavras. Sua tarefa é fornecer a tradução EXATA de cada uma delas, mas APENAS no contexto do Nível 2.
 
   REGRA DE OURO (ESCOPO RESTRITO):
-  Forneça APENAS o significado e a classe gramatical que são introduzidos e exigidos no Nível 2 do Novo HSK 3.0. 
-  IGNORE completamente significados avançados que serão ensinados nos níveis 3 a 9, ou significados básicos do nível 1 se a palavra estiver assumindo uma nova função no nível 2.
-  (Exemplo de escopo: Se a palavra "分" no nível 2 atua como Verbo, traduza apenas como Verbo, ignorando sua função de classificador do nível 1).
+  Forneça APENAS o significado e a classe gramatical exigidos no Nível 2 do Novo HSK 3.0. 
+  IGNORE significados avançados ou básicos de outros níveis se a palavra tiver uma função específica no nível 2.
 
   REGRAS DE FORMATAÇÃO:
-  1. Use abreviações para a classe gramatical: Subs.:, Verbo:, Adj.:, Adv.:, Class.:, Prep.:, etc.
-  2. Se houver mais de uma classe gramatical DENTRO DO NÍVEL 2, separe por quebra de linha.
-  3. Seja extremamente conciso.
-  4. Retorne APENAS o texto final, sem aspas, sem markdown, sem explicações.
+  1. Use abreviações: Subs.:, Verbo:, Adj.:, Adv.:, Class.:, Prep.:
+  2. Seja extremamente conciso.
+  
+  DADOS DE ENTRADA:
+  ${JSON.stringify(listaPalavras)}
 
-  Exemplo de saída esperada:
-  Subs.: Meio quilo
-  Class.: Quantidade pesada
-  `;
+  Retorne ESTRITAMENTE um array JSON no formato:
+  [
+    {
+      "id_relativo": (manter exatamente o mesmo número recebido na entrada),
+      "traducao": "Verbo: dividir"
+    }
+  ]`;
 
   const payload = {
     "contents": [{"parts": [{"text": prompt}]}],
     "generationConfig": {
-      "temperature": 0.1 // Temperatura super baixa para evitar alucinações e manter a resposta técnica
+      "response_mime_type": "application/json",
+      "temperature": 0.1 
     }
   };
 
@@ -41,17 +45,16 @@ function obterTraducaoHSK2(hanzi, pinyin) {
 
   try {
     const resposta = UrlFetchApp.fetch(url, opcoes);
-    const json = JSON.parse(resposta.getContentText());
-    
     if (resposta.getResponseCode() === 200) {
-      // Retorna o texto limpo, removendo quebras de linha extras no final
-      return json.candidates[0].content.parts[0].text.trim();
+      const json = JSON.parse(resposta.getContentText());
+      const textoSaida = json.candidates[0].content.parts[0].text;
+      return JSON.parse(textoSaida);
     } else {
       console.log("Erro na API de Tradução: " + resposta.getContentText());
-      return "Erro na tradução";
+      return null;
     }
   } catch (e) {
     console.log("Erro no fetch de Tradução: " + e.message);
-    return "Erro no fetch";
+    return null;
   }
 }

@@ -6,16 +6,25 @@ function obterTraducoesEmLoteHSK2(listaPalavras) {
   // Usando o gemini-1.5-flash-latest para garantir estabilidade
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${API_KEY}`;
 
-  const prompt = `Você é um professor de Mandarim especialista no currículo do Novo HSK 3.0.
-  Abaixo enviarei um JSON com uma lista de palavras. Sua tarefa é fornecer a tradução EXATA de cada uma delas, mas APENAS no contexto do Nível 2.
+const prompt = `Você é um professor de Mandarim extremamente rigoroso, especialista no currículo do Novo HSK 3.0.
+  Abaixo enviarei um JSON com uma lista de palavras. Sua tarefa é fornecer a tradução de cada uma delas, mas APENAS no contexto do Nível 2.
 
-  REGRA DE OURO (ESCOPO RESTRITO):
-  Forneça APENAS o significado e a classe gramatical exigidos no Nível 2 do Novo HSK 3.0. 
-  IGNORE significados avançados ou básicos de outros níveis se a palavra tiver uma função específica no nível 2.
+  REGRAS SEMÂNTICAS (MUITO IMPORTANTE):
+  1. Foque no significado PRINCIPAL e mais canônico da palavra no nível 2. 
+  2. Evite sinônimos soltos que se confundam com outras palavras do HSK (Ex: para "爱", traga "Amor/Amar", e NÃO "gostar", para não confundir com "喜欢". Para "爱好", o foco principal é "Hobby").
+  3. Se a palavra atua fortemente como mais de uma classe gramatical (ex: Substantivo e Verbo), traga ambas.
 
-  REGRAS DE FORMATAÇÃO:
-  1. Use abreviações: Subs.:, Verbo:, Adj.:, Adv.:, Class.:, Prep.:
-  2. Seja extremamente conciso.
+  REGRAS DE FORMATAÇÃO ESTRITA:
+  1. Prefixos obrigatórios: Subs.:, Verbo:, Adj.:, Adv.:, Class.:, Prep.:, Num.:, Part.:
+  2. CAPITALIZAÇÃO: A primeira letra de cada tradução deve ser SEMPRE maiúscula. (Ex: "Amor", não "amor").
+ 3. QUEBRA DE LINHA: Se houver mais de uma classe gramatical para a palavra, separe-as ESTRITAMENTE com o caractere de nova linha (\\n). NUNCA use ponto e vírgula (;), vírgula ou tags HTML como <br>.
+  4. Seja extremamente conciso.
+
+  Exemplo Perfeito de Saída Esperada:
+  - Para 爱: "Subs.: Amor\\nVerbo: Amar"
+  - Para 爱好: "Subs.: Hobby\\n"
+  - Para 八: "Num.: Oito"
+  - Para 吧: "Part.: Partícula de sugestão"
   
   DADOS DE ENTRADA:
   ${JSON.stringify(listaPalavras)}
@@ -24,7 +33,7 @@ function obterTraducoesEmLoteHSK2(listaPalavras) {
   [
     {
       "id_relativo": (manter exatamente o mesmo número recebido na entrada),
-      "traducao": "Verbo: dividir"
+      "traducao": "Verbo: Dividir"
     }
   ]`;
 

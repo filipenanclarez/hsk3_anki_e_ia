@@ -3,6 +3,9 @@ const API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${API_KEY}`;
 
 function gerarPinyinNumerico() {
+  // --- INÍCIO DO CRONÔMETRO ---
+  const inicio = new Date();
+  
   const aba = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const linhaInicial = aba.getActiveCell().getRow();
   const tamanhoDoLote = 5; 
@@ -13,7 +16,6 @@ function gerarPinyinNumerico() {
   let loteDeTextos = [];
   let linhasDestino = [];
 
-  // 1. Coleta todas as palavras válidas sem fazer requisições
   for (let i = 0; i < valoresPinyin.length; i++) {
     let pinyinComAcento = valoresPinyin[i][0];
     let linhaDestino = linhaInicial + i;
@@ -21,26 +23,29 @@ function gerarPinyinNumerico() {
     
     if (pinyinComAcento !== "" && celulaDestino.getValue() === "") {
       loteDeTextos.push(pinyinComAcento);
-      linhasDestino.push(linhaDestino); // Guarda o endereço exato para devolver depois
+      linhasDestino.push(linhaDestino);
     }
   }
   
-  if (loteDeTextos.length === 0) return; // Nada a fazer
-  
-  // 2. Faz UMA ÚNICA chamada para a API com o lote inteiro
-  console.log(`Enviando ${loteDeTextos.length} itens de uma vez...`);
-  let arrayDeResultados = chamarIAEmLote(loteDeTextos);
-  
-  // 3. Despeja os resultados de volta na planilha
-  if (arrayDeResultados && arrayDeResultados.length === loteDeTextos.length) {
-    for (let j = 0; j < arrayDeResultados.length; j++) {
-       let pinyinFinal = formatarRegex(arrayDeResultados[j]);
-       aba.getRange(linhasDestino[j], 5).setValue(pinyinFinal);
+  if (loteDeTextos.length > 0) {
+    console.log(`Enviando ${loteDeTextos.length} itens...`);
+    let arrayDeResultados = chamarIAEmLote(loteDeTextos);
+    
+    if (arrayDeResultados && arrayDeResultados.length === loteDeTextos.length) {
+      for (let j = 0; j < arrayDeResultados.length; j++) {
+         let pinyinFinal = formatarRegex(arrayDeResultados[j]);
+         aba.getRange(linhasDestino[j], 5).setValue(pinyinFinal);
+      }
     }
-    console.log("Lote concluído em tempo recorde.");
-  } else {
-    console.log("Erro: Falha na devolução do lote pela API.");
   }
+
+  // --- FIM DO CRONÔMETRO E ESCRITA NA B1 ---
+  const fim = new Date();
+  const tempoTotalSegundos = (fim - inicio) / 1000;
+  
+  // Escreve na B1 formatado
+  aba.getRange("B1").setValue(`Última execução: ${tempoTotalSegundos.toFixed(2)}s`);
+  console.log(`Tempo total: ${tempoTotalSegundos}s`);
 }
 
 function chamarIAEmLote(listaDeTextos) {

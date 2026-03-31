@@ -1,53 +1,57 @@
-const API_KEY = 'AIzaSyCf2Aq3S7Ts51FJZ1CLGuC4eLnaYtUPRtM'; // <--- Coloque sua chave entre as aspas
+const API_KEY = 'AIzaSyCf2Aq3S7Ts51FJZ1CLGuC4eLnaYtUPRtM'; // Lembre-se de colar sua chave novamente
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${API_KEY}`;
 
 function gerarPinyinNumerico() {
   const aba = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  
-  // 1. Descobre a linha exata onde o seu cursor está clicado
   const linhaInicial = aba.getActiveCell().getRow();
-  
-  // 2. Define o limite do lote
   const tamanhoDoLote = 5; 
   
-  // 3. Lê estritamente as 5 linhas da Coluna D (coluna 4), a partir do seu cursor
   const intervaloPinyin = aba.getRange(linhaInicial, 4, tamanhoDoLote, 1);
   const valoresPinyin = intervaloPinyin.getValues();
   
-  console.log(`Iniciando lote de ${tamanhoDoLote} linhas a partir da linha ${linhaInicial}.`);
-  
+  let loteDeTextos = [];
+  let linhasDestino = [];
+
+  // 1. Coleta todas as palavras válidas sem fazer requisições
   for (let i = 0; i < valoresPinyin.length; i++) {
     let pinyinComAcento = valoresPinyin[i][0];
     let linhaDestino = linhaInicial + i;
-    let celulaDestino = aba.getRange(linhaDestino, 5); // Coluna E
+    let celulaDestino = aba.getRange(linhaDestino, 5);
     
-    // Só consome a API se houver dado na Coluna D e se a Coluna E estiver vazia
     if (pinyinComAcento !== "" && celulaDestino.getValue() === "") {
-      console.log(`Processando linha ${linhaDestino}...`);
-      
-      let pinyinNumerico = chamarIA(pinyinComAcento);
-      celulaDestino.setValue(pinyinNumerico);
-      
-    } else {
-      console.log(`Linha ${linhaDestino} pulada (D vazia ou E já preenchida).`);
+      loteDeTextos.push(pinyinComAcento);
+      linhasDestino.push(linhaDestino); // Guarda o endereço exato para devolver depois
     }
   }
   
-  console.log("Lote concluído.");
+  if (loteDeTextos.length === 0) return; // Nada a fazer
+  
+  // 2. Faz UMA ÚNICA chamada para a API com o lote inteiro
+  console.log(`Enviando ${loteDeTextos.length} itens de uma vez...`);
+  let arrayDeResultados = chamarIAEmLote(loteDeTextos);
+  
+  // 3. Despeja os resultados de volta na planilha
+  if (arrayDeResultados && arrayDeResultados.length === loteDeTextos.length) {
+    for (let j = 0; j < arrayDeResultados.length; j++) {
+       let pinyinFinal = formatarRegex(arrayDeResultados[j]);
+       aba.getRange(linhasDestino[j], 5).setValue(pinyinFinal);
+    }
+    console.log("Lote concluído em tempo recorde.");
+  } else {
+    console.log("Erro: Falha na devolução do lote pela API.");
+  }
 }
 
-function chamarIA(texto) {
-  // A regra de negócio atualizada no prompt
-  const prompt = `Converta o Pinyin com acentos para Pinyin numérico. 
-  Regras de tom: 1º=1, 2º=2, 3º=3, 4º=4. 
-  ATENÇÃO: Para o tom neutro, NÃO coloque número (exemplo: mā ma -> ma1 ma).
-  Sempre separe as sílabas com um espaço.
-  Retorne APENAS o JSON: {"resultado": "valor"}. 
-  Entrada: ${texto}`;
+function chamarIAEmLote(listaDeTextos) {
+  // O prompt agora exige estritamente um Array JSON de volta
+  const prompt = `Converta uma lista de Pinyin com acentos para Pinyin numérico.
+  Regras: 1º=1, 2º=2, 3º=3, 4º=4. Tom neutro = sem número (mā ma -> ma1 ma). Separe sílabas com espaço.
+  Você receberá um array JSON de strings. Você DEVE retornar ESTRITAMENTE um array JSON de strings com os resultados, exatamente na mesma ordem.
+  Entrada: ${JSON.stringify(listaDeTextos)}`;
 
   const payload = {
     "contents": [{ "parts": [{ "text": prompt }] }],
-    "generationConfig": { "temperature": 0.1 }
+    "generationConfig": { "temperature": 0.0 }
   };
 
   const opcoes = {
@@ -57,34 +61,44 @@ function chamarIA(texto) {
     "muteHttpExceptions": true
   };
 
-  try {
+try {
     const resposta = UrlFetchApp.fetch(API_URL, opcoes);
-    const codigoStatus = resposta.getResponseCode();
     const textoResposta = resposta.getContentText();
+    const codigoStatus = resposta.getResponseCode();
     
     if (codigoStatus !== 200) {
-      console.log(`Erro da API: ${textoResposta}`);
-      return "Erro de API";
+      console.log(`Erro HTTP ${codigoStatus}: ${textoResposta}`);
+      return null;
     }
 
     const json = JSON.parse(textoResposta);
-    
-    if (!json.candidates || !json.candidates[0].content) {
-      return "Erro de Formato";
-    }
-
     const saidaBruta = json.candidates[0].content.parts[0].text;
+    
+    // LOG DE DEBUG - MUITO IMPORTANTE AGORA:
+    console.log("CONTEÚDO BRUTO VINDO DA IA:");
+    console.log(saidaBruta);
+
+    // Limpeza de Markdown (caso ela mande com ```json)
     const jsonLimpo = saidaBruta.replace(/```json|```/g, "").trim();
-    let resultadoBruto = JSON.parse(jsonLimpo).resultado;
     
-    // A Regex continua aqui: se a IA por acaso cuspir "ba4ba", 
-    // ela acha o "4" colado no "b" e separa para "ba4 ba".
-    const pinyinFormatado = resultadoBruto.replace(/(\d)(?=[a-zA-Z])/g, "$1 ").replace(/\s+/g, " ").trim();
+    const resultadoFinal = JSON.parse(jsonLimpo);
     
-    return pinyinFormatado;
+    // Verifica se o que voltou é realmente um Array
+    if (Array.isArray(resultadoFinal)) {
+      return resultadoFinal;
+    } else {
+      console.log("A IA não devolveu um Array. Devolveu: " + typeof resultadoFinal);
+      return null;
+    }
     
   } catch (e) {
-    console.log("Erro: " + e.message);
-    return "Erro Interno";
+    console.log("Erro no Parse do Lote: " + e.message);
+    return null;
   }
+}
+
+// Nossa blindagem para garantir que a IA não pule os espaços
+function formatarRegex(texto) {
+    if (!texto) return "";
+    return texto.replace(/(\d)(?=[a-zA-Z])/g, "$1 ").replace(/\s+/g, " ").trim();
 }

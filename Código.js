@@ -1,4 +1,5 @@
-const API_KEY = 'AIzaSyCf2Aq3S7Ts51FJZ1CLGuC4eLnaYtUPRtM'; // Lembre-se de colar sua chave novamente
+// Removemos a string fixa e lemos das propriedades do script
+const API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${API_KEY}`;
 
 function gerarPinyinNumerico() {

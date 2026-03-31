@@ -3,49 +3,53 @@ const API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${API_KEY}`;
 
 function gerarPinyinNumerico() {
-  // --- INÍCIO DO CRONÔMETRO ---
   const inicio = new Date();
-  
   const aba = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const linhaInicial = aba.getActiveCell().getRow();
   const tamanhoDoLote = 5; 
   
-  const intervaloPinyin = aba.getRange(linhaInicial, 4, tamanhoDoLote, 1);
-  const valoresPinyin = intervaloPinyin.getValues();
+  // 1. Pegamos o bloco inteiro de uma vez (leitura otimizada)
+  const intervaloDados = aba.getRange(linhaInicial, 4, tamanhoDoLote, 2); // Colunas D e E
+  const valoresD_E = intervaloDados.getValues();
   
   let loteDeTextos = [];
-  let linhasDestino = [];
+  let indicesParaAtualizar = [];
 
-  for (let i = 0; i < valoresPinyin.length; i++) {
-    let pinyinComAcento = valoresPinyin[i][0];
-    let linhaDestino = linhaInicial + i;
-    let celulaDestino = aba.getRange(linhaDestino, 5);
+  for (let i = 0; i < valoresD_E.length; i++) {
+    let pinyinComAcento = valoresD_E[i][0]; // Coluna D
+    let pinyinExistente = valoresD_E[i][1]; // Coluna E
     
-    if (pinyinComAcento !== "" && celulaDestino.getValue() === "") {
+    if (pinyinComAcento !== "" && pinyinExistente === "") {
       loteDeTextos.push(pinyinComAcento);
-      linhasDestino.push(linhaDestino);
+      indicesParaAtualizar.push(i); // Guardamos a posição relativa no array
     }
   }
   
   if (loteDeTextos.length > 0) {
-    console.log(`Enviando ${loteDeTextos.length} itens...`);
+    console.log(`Enviando ${loteDeTextos.length} itens via API...`);
     let arrayDeResultados = chamarIAEmLote(loteDeTextos);
     
     if (arrayDeResultados && arrayDeResultados.length === loteDeTextos.length) {
+      // 2. Preparamos a matriz de atualização
+      // O setValues exige um array de arrays: [[valor1], [valor2], ...]
       for (let j = 0; j < arrayDeResultados.length; j++) {
          let pinyinFinal = formatarRegex(arrayDeResultados[j]);
-         aba.getRange(linhasDestino[j], 5).setValue(pinyinFinal);
+         let indiceNoBloco = indicesParaAtualizar[j];
+         
+         // Atualizamos apenas o valor na nossa variável local (memória)
+         valoresD_E[indiceNoBloco][1] = pinyinFinal; 
       }
+      
+      // 3. DESPEJO ÚNICO (Escrita otimizada)
+      // Pegamos apenas a coluna E do nosso bloco e escrevemos de uma vez
+      const matrizEscrita = valoresD_E.map(linha => [linha[1]]);
+      aba.getRange(linhaInicial, 5, tamanhoDoLote, 1).setValues(matrizEscrita);
     }
   }
 
-  // --- FIM DO CRONÔMETRO E ESCRITA NA B1 ---
   const fim = new Date();
   const tempoTotalSegundos = (fim - inicio) / 1000;
-  
-  // Escreve na B1 formatado
   aba.getRange("B1").setValue(`Última execução: ${tempoTotalSegundos.toFixed(2)}s`);
-  console.log(`Tempo total: ${tempoTotalSegundos}s`);
 }
 
 function chamarIAEmLote(listaDeTextos) {

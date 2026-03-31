@@ -2,6 +2,7 @@
  * FUNÇÃO PRINCIPAL: Processa os prints da pasta do Drive
  */
 function processarPrintsHSK() {
+  const startTime = Date.now(); // INÍCIO DO CRONÔMETRO
   const FOLDER_ID = '1d-iclYPFitkd-2tpw_QbnTVwskicEsrr';
   const folderNovos = DriveApp.getFolderById(FOLDER_ID);
   
@@ -28,6 +29,16 @@ function processarPrintsHSK() {
   console.log("Iniciando varredura de prints...");
 
   while (arquivos.hasNext()) {
+
+// --- CONTROLE DE TEMPO (GRACEFUL SHUTDOWN) ---
+    // 270.000 milissegundos = 4 minutos e 30 segundos
+    if (Date.now() - startTime > 270000) {
+      console.log("⚠️ Limite de tempo se aproximando. Parando a execução de forma segura.");
+      console.log("Rode o script novamente para processar o restante dos prints.");
+      break; // Interrompe o loop de arquivos e vai direto para a ordenação final
+    }
+    // ---------------------------------------------
+        
     let arquivo = arquivos.next();
     
     // Pula pastas ou arquivos que não sejam imagem

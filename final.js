@@ -1,5 +1,4 @@
 const API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-// Corrigi aqui para "gemini-1.5-flash-latest" para evitar aquele erro de modelo não encontrado
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${API_KEY}`;
 
 function gerarPinyinNumerico() {
@@ -8,83 +7,87 @@ function gerarPinyinNumerico() {
   const linhaInicial = aba.getActiveCell().getRow();
   const tamanhoDoLote = 5; 
   
-  // 1. Pegamos o bloco inteiro de uma vez (leitura otimizada)
-  // Lemos a partir da Coluna C (índice 3), tamanho 4 colunas: C, D, E, F
-  const intervaloDados = aba.getRange(linhaInicial, 3, tamanhoDoLote, 4); 
+  // Lemos a partir da Coluna C (3), tamanho 6 colunas: C, D, E, F, G, H
+  const COLUNA_INICIAL = 3; 
+  const QTD_COLUNAS = 6; 
+  
+  const intervaloDados = aba.getRange(linhaInicial, COLUNA_INICIAL, tamanhoDoLote, QTD_COLUNAS); 
   const valores = intervaloDados.getValues();
   
   let lotePinyin = [];
   let indicesPinyin = [];
-  
   let loteTraducao = [];
+  let loteObsHanzi = [];
 
   for (let i = 0; i < valores.length; i++) {
-    let hanzi = valores[i][0];        // Coluna C
-    let pinyinAcento = valores[i][1]; // Coluna D
+    let hanzi = valores[i][0];          // Coluna C
+    let pinyinAcento = valores[i][1];   // Coluna D
     let pinyinExistente = valores[i][2]; // Coluna E
     let traducaoExistente = valores[i][3]; // Coluna F
+    // valores[i][4] é a Coluna G (sua formatação particular, ignoramos)
+    let obsExistente = valores[i][5];   // Coluna H
     
-    // Se não tiver Hanzi nem Pinyin com acento, a linha está vazia, ignora.
     if (!hanzi || !pinyinAcento) continue; 
     
     // Fila do Pinyin Numérico
     if (pinyinExistente === "") {
       lotePinyin.push(pinyinAcento);
-      indicesPinyin.push(i); // Guarda a posição relativa
+      indicesPinyin.push(i); 
     }
     
     // Fila da Tradução HSK 2
     if (traducaoExistente === "") {
-      loteTraducao.push({
-        id_relativo: i,
-        hanzi: hanzi,
-        pinyin: pinyinAcento
-      });
+      loteTraducao.push({ id_relativo: i, hanzi: hanzi, pinyin: pinyinAcento });
+    }
+
+    // Fila de Observações Hanzi (Coluna H)
+    if (obsExistente === "") {
+      loteObsHanzi.push({ id_relativo: i, hanzi: hanzi, pinyin: pinyinAcento });
     }
   }
   
-  // --- 2. EXECUTA E GRAVA O PINYIN NUMÉRICO ---
+  // --- 1. GRAVA PINYIN NUMÉRICO (COLUNA E) ---
   if (lotePinyin.length > 0) {
     console.log(`Enviando ${lotePinyin.length} itens para Pinyin...`);
     let arrayDeResultados = chamarIAEmLote(lotePinyin);
-    
     if (arrayDeResultados && arrayDeResultados.length === lotePinyin.length) {
       for (let j = 0; j < arrayDeResultados.length; j++) {
-         let pinyinFinal = formatarRegex(arrayDeResultados[j]);
-         let indiceNoBloco = indicesPinyin[j];
-         valores[indiceNoBloco][2] = pinyinFinal; // Atualiza a matriz (Coluna E)
+         valores[indicesPinyin[j]][2] = formatarRegex(arrayDeResultados[j]); 
       }
-      
-      // DESPEJO ÚNICO NA COLUNA E
       const matrizPinyin = valores.map(linha => [linha[2]]);
       aba.getRange(linhaInicial, 5, tamanhoDoLote, 1).setValues(matrizPinyin);
     }
   }
 
-  // --- 3. EXECUTA E GRAVA A TRADUÇÃO HSK 2 ---
+  // --- 2. GRAVA TRADUÇÃO HSK 2 (COLUNA F) ---
   if (loteTraducao.length > 0) {
     console.log(`Enviando ${loteTraducao.length} itens para Tradução...`);
     let resultadosTraducao = obterTraducoesEmLoteHSK2(loteTraducao);
-    
     if (resultadosTraducao) {
       for (let k = 0; k < resultadosTraducao.length; k++) {
-         let item = resultadosTraducao[k];
-         let indiceNoBloco = item.id_relativo;
-         valores[indiceNoBloco][3] = item.traducao; // Atualiza a matriz (Coluna F)
+         valores[resultadosTraducao[k].id_relativo][3] = resultadosTraducao[k].traducao; 
       }
-      
-      // DESPEJO ÚNICO NA COLUNA F
       const matrizTraducao = valores.map(linha => [linha[3]]);
       aba.getRange(linhaInicial, 6, tamanhoDoLote, 1).setValues(matrizTraducao);
     }
   }
 
+  // --- 3. GRAVA OBS. HANZI (COLUNA H) ---
+  if (loteObsHanzi.length > 0) {
+    console.log(`Enviando ${loteObsHanzi.length} itens para Obs. Hanzi...`);
+    let resultadosObs = obterObsHanziEmLote(loteObsHanzi);
+    if (resultadosObs) {
+      for (let m = 0; m < resultadosObs.length; m++) {
+         valores[resultadosObs[m].id_relativo][5] = resultadosObs[m].observacao; 
+      }
+      // Coluna H é o índice 8 (A=1, B=2, C=3, D=4, E=5, F=6, G=7, H=8)
+      const matrizObs = valores.map(linha => [linha[5]]);
+      aba.getRange(linhaInicial, 8, tamanhoDoLote, 1).setValues(matrizObs);
+    }
+  }
+
   const fim = new Date();
   const tempoTotalSegundos = (fim - inicio) / 1000;
-  
-  // Nota: Deixei a célula B1 aqui como você tinha no seu código original, 
-  // mas lembre-se que se a Coluna B for a sua chave de IDs, isso vai sobrescrever o cabeçalho.
-  aba.getRange("B1").setValue(`Última execução: ${tempoTotalSegundos.toFixed(2)}s`);
   console.log(`Lote finalizado em ${tempoTotalSegundos.toFixed(2)}s`);
 }
 
@@ -92,8 +95,8 @@ function gerarPinyinNumerico() {
 
 function chamarIAEmLote(listaDeTextos) {
   const prompt = `Converta uma lista de Pinyin com acentos para Pinyin numérico.
-  Regras: 1º=1, 2º=2, 3º=3, 4º=4. Tom neutro = sem número (mā ma -> ma1 ma). Separe sílabas com espaço.
-  Você receberá um array JSON de strings. Você DEVE retornar ESTRITAMENTE um array JSON de strings com os resultados, exatamente na mesma ordem.
+  Regras: 1º=1, 2º=2, 3º=3, 4º=4. Tom neutro = sem número. Separe sílabas com espaço.
+  Você receberá um array JSON de strings. Você DEVE retornar ESTRITAMENTE um array JSON de strings.
   Entrada: ${JSON.stringify(listaDeTextos)}`;
 
   const payload = {
@@ -110,29 +113,11 @@ function chamarIAEmLote(listaDeTextos) {
 
   try {
     const resposta = UrlFetchApp.fetch(API_URL, opcoes);
-    const textoResposta = resposta.getContentText();
-    const codigoStatus = resposta.getResponseCode();
-    
-    if (codigoStatus !== 200) {
-      console.log(`Erro HTTP ${codigoStatus}: ${textoResposta}`);
-      return null;
-    }
-
-    const json = JSON.parse(textoResposta);
-    const saidaBruta = json.candidates[0].content.parts[0].text;
-    
-    const jsonLimpo = saidaBruta.replace(/```json|```/g, "").trim();
-    const resultadoFinal = JSON.parse(jsonLimpo);
-    
-    if (Array.isArray(resultadoFinal)) {
-      return resultadoFinal;
-    } else {
-      console.log("A IA não devolveu um Array. Devolveu: " + typeof resultadoFinal);
-      return null;
-    }
-    
+    const json = JSON.parse(resposta.getContentText());
+    const jsonLimpo = json.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim();
+    return JSON.parse(jsonLimpo);
   } catch (e) {
-    console.log("Erro no Parse do Lote: " + e.message);
+    console.log("Erro no Parse do Pinyin: " + e.message);
     return null;
   }
 }

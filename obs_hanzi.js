@@ -33,7 +33,11 @@ function montarRequestObsHanzi(listaPalavras) {
 
   Blocos OPCIONAIS (Use APENAS se houver relevância real. Não "encha linguiça"):
   ⚖️ Similaridades:
-  [SÓ INCLUA se houver outra palavra no HSK que cause confusão real e comum nos alunos. Se a palavra for clara, OMITA ESTE BLOCO].
+  [Busque ATIVAMENTE no vocabulário completo do HSK3.0 nível 2 (novo padrão, 
+  772 palavras) por palavras com sobreposição semântica, mesmo que parcial.
+  Considere: sinônimos, verbos com função parecida, substantivos do mesmo 
+  campo semântico. OMITA este bloco APENAS se após essa busca não encontrar 
+  nenhuma palavra que cause confusão real.].
 
   💡 Dica de Memorização:
   [SÓ INCLUA se você tiver uma mnemônica visual ou lógica genuinamente inteligente e útil. Se for simples, OMITA ESTE BLOCO].
@@ -61,7 +65,8 @@ function montarRequestObsHanzi(listaPalavras) {
     "generationConfig": { 
       "response_mime_type": "application/json", 
       "temperature": 0.2,
-      "maxOutputTokens": 8192 
+      "maxOutputTokens": 8192,
+      "thinkingConfig": { "thinkingBudget": 0 } // ← desliga o thinking 
     }
   };
 

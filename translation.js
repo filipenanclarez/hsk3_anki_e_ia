@@ -45,7 +45,8 @@ function montarRequestTraducao(listaPalavras) {
     "generationConfig": { 
       "response_mime_type": "application/json", 
       "temperature": 0.0,
-      "maxOutputTokens": 8192 // Garante que a IA não corta a resposta a meio
+      "maxOutputTokens": 8192, // Garante que a IA não corta a resposta a meio
+      "thinkingConfig": { "thinkingBudget": 0 }
     }
   };
 

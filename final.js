@@ -7,121 +7,110 @@ function gerarPinyinNumerico() {
   const inicio = new Date();
   const aba = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const linhaInicial = aba.getActiveCell().getRow();
-  const tamanhoDoLote = 5; 
-  
-  const COLUNA_INICIAL = 3; 
-  const QTD_COLUNAS = 6; 
-  
-  const intervaloDados = aba.getRange(linhaInicial, COLUNA_INICIAL, tamanhoDoLote, QTD_COLUNAS); 
+  const tamanhoDoLote = 5;
+
+  const COLUNA_INICIAL = 3;
+  const QTD_COLUNAS = 6;
+
+  const intervaloDados = aba.getRange(linhaInicial, COLUNA_INICIAL, tamanhoDoLote, QTD_COLUNAS);
   const valores = intervaloDados.getValues();
-  
+
   let lotePinyin = [], indicesPinyin = [];
   let loteTraducao = [];
   let loteObsHanzi = [];
 
-  // 1. VARREDURA (Monta as filas)
   for (let i = 0; i < valores.length; i++) {
-    let hanzi = valores[i][0];          
-    let pinyinAcento = valores[i][1];   
-    let pinyinExistente = valores[i][2]; 
-    let traducaoExistente = valores[i][3]; 
-    let obsExistente = valores[i][5];   
-    
-    if (!hanzi || !pinyinAcento) continue; 
-    
-    if (pinyinExistente === "") {
-      lotePinyin.push(pinyinAcento);
-      indicesPinyin.push(i); 
-    }
-    if (traducaoExistente === "") loteTraducao.push({ id_relativo: i, hanzi: hanzi, pinyin: pinyinAcento });
-    if (obsExistente === "") loteObsHanzi.push({ id_relativo: i, hanzi: hanzi, pinyin: pinyinAcento });
+    let hanzi = valores[i][0];
+    let pinyinAcento = valores[i][1];
+    if (!hanzi || !pinyinAcento) continue;
+
+    if (valores[i][2] === "") { lotePinyin.push(pinyinAcento); indicesPinyin.push(i); }
+    if (valores[i][3] === "") loteTraducao.push({ id_relativo: i, hanzi, pinyin: pinyinAcento });
+    if (valores[i][5] === "") loteObsHanzi.push({ id_relativo: i, hanzi, pinyin: pinyinAcento });
   }
-  
-  // 2. PREPARAÇÃO DO LOTE PARALELO
+
+  // Monta requisições — obs_hanzi vai UMA POR PALAVRA para reduzir tokens por chamada
   let requisoesParalelas = [];
-  let mapaDeIndices = {}; // Guarda em qual posição do array foi cada requisição
+  let mapaDeIndices = {};
 
   if (lotePinyin.length > 0) {
     requisoesParalelas.push(montarRequestPinyin(lotePinyin));
     mapaDeIndices.pinyin = requisoesParalelas.length - 1;
   }
-  
+
   if (loteTraducao.length > 0) {
     requisoesParalelas.push(montarRequestTraducao(loteTraducao));
     mapaDeIndices.traducao = requisoesParalelas.length - 1;
   }
-  
+
+  // ✅ CHAVE DA CORREÇÃO: uma request por palavra, todas no mesmo fetchAll
   if (loteObsHanzi.length > 0) {
-    requisoesParalelas.push(montarRequestObsHanzi(loteObsHanzi));
-    mapaDeIndices.obs = requisoesParalelas.length - 1;
+    mapaDeIndices.obs = [];
+    for (let i = 0; i < loteObsHanzi.length; i++) {
+      requisoesParalelas.push(montarRequestObsHanzi([loteObsHanzi[i]])); // array com 1 palavra
+      mapaDeIndices.obs.push({
+        posicaoNaFila: requisoesParalelas.length - 1,
+        id_relativo: loteObsHanzi[i].id_relativo
+      });
+    }
   }
 
-  // 3. O GRANDE DISPARO PARALELO (Magia acontece aqui)
+  if (requisoesParalelas.length === 0) return;
+
   let respostas = [];
-  if (requisoesParalelas.length > 0) {
-    console.log(`🚀 Disparando ${requisoesParalelas.length} requisições de API SIMULTANEAMENTE...`);
-    const tempoInicioFetch = new Date(); 
-    
-    try {
-      respostas = UrlFetchApp.fetchAll(requisoesParalelas);
-      
-      const tempoFimFetch = new Date(); 
-      console.log(`⏱️ SUCESSO! Requisições voltaram em ${((tempoFimFetch - tempoInicioFetch) / 1000).toFixed(2)} segundos!`);
-    } catch (erroDeRede) {
-      console.log(`⚠️ Falha temporária de rede no Google: ${erroDeRede.message}`);
-      console.log("Por favor, clique para rodar novamente nas mesmas linhas.");
-      return; // Interrompe o script de forma limpa sem quebrar a planilha
-    }
+  try {
+    console.log(`🚀 Disparando ${requisoesParalelas.length} requisições simultaneamente...`);
+    const tempoInicioFetch = new Date();
+    respostas = UrlFetchApp.fetchAll(requisoesParalelas);
+    console.log(`⏱️ Requisições voltaram em ${((new Date() - tempoInicioFetch) / 1000).toFixed(2)}s`);
+  } catch (erroDeRede) {
+    console.log(`⚠️ Falha de rede: ${erroDeRede.message}`);
+    return;
   }
 
-  // 4. PROCESSAMENTO E GRAVAÇÃO DAS RESPOSTAS
-  
-  // Pinyin
+  // Processa Pinyin
   if (mapaDeIndices.pinyin !== undefined) {
-    let arrayDeResultados = extrairJsonPinyin(respostas[mapaDeIndices.pinyin]);
-    if (arrayDeResultados) {
-      for (let j = 0; j < arrayDeResultados.length; j++) {
-         valores[indicesPinyin[j]][2] = formatarRegex(arrayDeResultados[j]); 
-      }
-      aba.getRange(linhaInicial, 5, tamanhoDoLote, 1).setValues(valores.map(linha => [linha[2]]));
+    let arr = extrairJsonPinyin(respostas[mapaDeIndices.pinyin]);
+    if (arr) {
+      for (let j = 0; j < arr.length; j++) valores[indicesPinyin[j]][2] = formatarRegex(arr[j]);
+      aba.getRange(linhaInicial, 5, tamanhoDoLote, 1).setValues(valores.map(l => [l[2]]));
     }
   }
 
-  // Tradução
+  // Processa Tradução
   if (mapaDeIndices.traducao !== undefined) {
-    let resultadosTraducao = extrairJsonTraducao(respostas[mapaDeIndices.traducao]);
-    if (resultadosTraducao) {
-      for (let k = 0; k < resultadosTraducao.length; k++) {
-         valores[resultadosTraducao[k].id_relativo][3] = resultadosTraducao[k].traducao; 
-      }
-      aba.getRange(linhaInicial, 6, tamanhoDoLote, 1).setValues(valores.map(linha => [linha[3]]));
+    let arr = extrairJsonTraducao(respostas[mapaDeIndices.traducao]);
+    if (arr) {
+      for (let k = 0; k < arr.length; k++) valores[arr[k].id_relativo][3] = arr[k].traducao;
+      aba.getRange(linhaInicial, 6, tamanhoDoLote, 1).setValues(valores.map(l => [l[3]]));
     }
   }
 
-  // Obs. Hanzi
-  if (mapaDeIndices.obs !== undefined) {
-    let resultadosObs = extrairJsonObsHanzi(respostas[mapaDeIndices.obs]);
-    if (resultadosObs) {
-      for (let m = 0; m < resultadosObs.length; m++) {
-         valores[resultadosObs[m].id_relativo][5] = resultadosObs[m].observacao; 
-      }
-      aba.getRange(linhaInicial, 8, tamanhoDoLote, 1).setValues(valores.map(linha => [linha[5]]));
+  // Processa Obs. Hanzi — uma resposta por palavra
+  if (mapaDeIndices.obs) {
+    for (let r = 0; r < mapaDeIndices.obs.length; r++) {
+      let { posicaoNaFila, id_relativo } = mapaDeIndices.obs[r];
+      let arr = extrairJsonObsHanzi(respostas[posicaoNaFila]);
+      if (arr && arr[0]) valores[id_relativo][5] = arr[0].observacao;
     }
+    aba.getRange(linhaInicial, 8, tamanhoDoLote, 1).setValues(valores.map(l => [l[5]]));
   }
 
-  // --- 5. GRAVA AS FÓRMULAS NA COLUNA G ---
+  // Fórmulas Coluna G
   let matrizFormulas = [];
   for (let idx = 0; idx < tamanhoDoLote; idx++) {
-    let linhaAtual = linhaInicial + idx;
-    // Monta a fórmula dinamicamente (Ex: =SUBSTITUTE(F3, CHAR(10), "<br>"))
-    let formula = `=SUBSTITUTE(F${linhaAtual}; CHAR(10); "<br>")`;
-    matrizFormulas.push([formula]);
+    matrizFormulas.push([`=SUBSTITUTE(F${linhaInicial + idx}; CHAR(10); "<br>")`]);
   }
-  // Despeja na Coluna G (índice 7)
   aba.getRange(linhaInicial, 7, tamanhoDoLote, 1).setFormulas(matrizFormulas);
 
-  const fim = new Date();
-  console.log(`Lote finalizado em ${((fim - inicio) / 1000).toFixed(2)}s`);
+  // Fórmulas Coluna I
+  let matrizFormulasI = [];
+  for (let idx = 0; idx < tamanhoDoLote; idx++) {
+    matrizFormulasI.push([`=SUBSTITUTE(H${linhaInicial + idx}; CHAR(10); "<br>")`]);
+  }
+  aba.getRange(linhaInicial, 9, tamanhoDoLote, 1).setFormulas(matrizFormulasI);
+
+  console.log(`✅ Lote finalizado em ${((new Date() - inicio) / 1000).toFixed(2)}s`);
 }
 
 // --- FUNÇÕES DE APOIO PARA O PINYIN ---
@@ -134,7 +123,12 @@ function montarRequestPinyin(listaDeTextos) {
 
   const payload = {
     "contents": [{ "parts": [{ "text": prompt }] }],
-    "generationConfig": { "temperature": 0.0 }
+    "generationConfig": {
+      "temperature": 0.0,
+      "response_mime_type": "application/json",
+      "responseSchema": { "type": "ARRAY", "items": { "type": "STRING" } },
+      "thinkingConfig": { "thinkingBudget": 0 }
+    }
   };
 
   return {
@@ -150,8 +144,7 @@ function extrairJsonPinyin(respostaHttp) {
   if (respostaHttp.getResponseCode() !== 200) return null;
   try {
     const json = JSON.parse(respostaHttp.getContentText());
-    const jsonLimpo = json.candidates[0].content.parts[0].text.replace(/```json|```/g, "").trim();
-    return JSON.parse(jsonLimpo);
+    return JSON.parse(json.candidates[0].content.parts[0].text);
   } catch (e) {
     console.log("Erro no Parse do Pinyin: " + e.message);
     return null;

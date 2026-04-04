@@ -38,7 +38,7 @@ function processarPrintsHSK() {
       break; // Interrompe o loop de arquivos e vai direto para a ordenação final
     }
     // ---------------------------------------------
-        
+
     let arquivo = arquivos.next();
     
     // Pula pastas ou arquivos que não sejam imagem
@@ -167,61 +167,69 @@ const prompt = `Você é um extrator de texto (OCR) de alta precisão.
 function formatarParaAnki(hanziStr, pinyinStr) {
   if (!hanziStr || !pinyinStr) return "";
 
-  // 1. Limpa pontuações ocidentais do Pinyin que possam ter vindo na imagem
   let pinyinLimpo = pinyinStr.replace(/[,.?!:;()]/g, '');
   let blocosPinyin = pinyinLimpo.split(/\s+/).filter(Boolean);
 
-  // Regex poderoso: encontra os grupos de vogais no pinyin (incluindo os acentuados)
-  // Cada grupo de vogais = 1 Hanzi
   const regexVogais = /[aāáǎàeēéěèiīíǐìoōóǒòuūúǔùüǖǘǚǜ]+/gi;
-
-  // Regex para identificar pontuações chinesas e ocidentais no Hanzi
   const regexPontuacaoChinesa = /[\u3000-\u303F\uFF00-\uFFEF]/;
 
-  let fraseAnki = "";
-  let cursorHanzi = 0;
+  // ✅ Tokeniza o Hanzi: agrupa dígitos consecutivos como um único token
+  let tokens = [];
+  let i = 0;
+  while (i < hanziStr.length) {
+    let ch = hanziStr[i];
+    if (/\d/.test(ch)) {
+      let num = "";
+      while (i < hanziStr.length && /\d/.test(hanziStr[i])) num += hanziStr[i++];
+      tokens.push({ text: num, isPunctuation: false, isNumber: true });
+    } else if (regexPontuacaoChinesa.test(ch)) {
+      tokens.push({ text: ch, isPunctuation: true, isNumber: false });
+      i++;
+    } else {
+      tokens.push({ text: ch, isPunctuation: false, isNumber: false });
+      i++;
+    }
+  }
 
-  for (let i = 0; i < blocosPinyin.length; i++) {
-    let pinyinWord = blocosPinyin[i];
-    
-    // Conta quantas sílabas (Hanzi) essa palavra Pinyin engloba
+  let fraseAnki = "";
+  let cursorToken = 0;
+
+  for (let p = 0; p < blocosPinyin.length; p++) {
+    let pinyinWord = blocosPinyin[p];
     let matches = pinyinWord.match(regexVogais);
-    let qtdSilibas = matches ? matches.length : 1; // Fallback para 1
+    let qtdSilabas = matches ? matches.length : 1;
 
     let hanziChunk = "";
     let pontuacaoAntes = "";
-    
-    // Captura pontuações ANTES da palavra
-    while (cursorHanzi < hanziStr.length && regexPontuacaoChinesa.test(hanziStr[cursorHanzi])) {
-      pontuacaoAntes += hanziStr[cursorHanzi];
-      cursorHanzi++;
+
+    // Captura pontuações antes da palavra
+    while (cursorToken < tokens.length && tokens[cursorToken].isPunctuation) {
+      pontuacaoAntes += tokens[cursorToken++].text;
     }
 
-    // Captura os Hanzi correspondentes a esta palavra Pinyin
-    for (let j = 0; j < qtdSilibas; j++) {
-      if (cursorHanzi < hanziStr.length) {
-        // Ignora pontuação no meio da palavra (caso raro, mas protege o script)
-        if (regexPontuacaoChinesa.test(hanziStr[cursorHanzi])) {
-          hanziChunk += hanziStr[cursorHanzi];
-          cursorHanzi++;
-          j--; // Não conta a pontuação como um Hanzi consumido
-        } else {
-          hanziChunk += hanziStr[cursorHanzi];
-          cursorHanzi++;
+    // ✅ Se o próximo token é número, consome tudo de uma vez (ex: "30" → sānshí)
+    if (cursorToken < tokens.length && tokens[cursorToken].isNumber) {
+      hanziChunk = tokens[cursorToken++].text;
+    } else {
+      // Comportamento normal: consome qtdSilabas tokens
+      for (let j = 0; j < qtdSilabas; j++) {
+        if (cursorToken < tokens.length) {
+          if (tokens[cursorToken].isPunctuation) {
+            hanziChunk += tokens[cursorToken++].text;
+            j--;
+          } else {
+            hanziChunk += tokens[cursorToken++].text;
+          }
         }
       }
     }
 
-    // Monta o bloco Anki e adiciona à string final
     fraseAnki += `${pontuacaoAntes}${hanziChunk}[${pinyinWord}]`;
   }
 
-  // Adiciona qualquer pontuação que tenha sobrado no final da frase (ex: ponto final, interrogação)
+  // Pontuação final restante
   let pontuacaoFinal = "";
-  while (cursorHanzi < hanziStr.length) {
-    pontuacaoFinal += hanziStr[cursorHanzi];
-    cursorHanzi++;
-  }
+  while (cursorToken < tokens.length) pontuacaoFinal += tokens[cursorToken++].text;
 
   return fraseAnki + pontuacaoFinal;
 }

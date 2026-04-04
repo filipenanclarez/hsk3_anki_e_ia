@@ -110,6 +110,22 @@ function gerarPinyinNumerico() {
   }
   aba.getRange(linhaInicial, 9, tamanhoDoLote, 1).setFormulas(matrizFormulasI);
 
+  // Fórmulas Coluna J — busca frase de exemplo na STAGING
+  let matrizFormulasJ = [];
+  for (let idx = 0; idx < tamanhoDoLote; idx++) {
+    let linha = linhaInicial + idx;
+    matrizFormulasJ.push([`=IFERROR(INDEX(STAGING!D$2:D;MATCH(B${linha}&C${linha};STAGING!A$2:A&STAGING!B$2:B;0));"")`]);
+  }
+  aba.getRange(linhaInicial, 10, tamanhoDoLote, 1).setFormulas(matrizFormulasJ);
+
+  // Fórmulas Coluna K — busca frase furigana (Anki) da STAGING
+  let matrizFormulasK = [];
+  for (let idx = 0; idx < tamanhoDoLote; idx++) {
+    let linha = linhaInicial + idx;
+    matrizFormulasK.push([`=IFERROR(INDEX(STAGING!G$2:G;MATCH(B${linha}&C${linha};STAGING!A$2:A&STAGING!B$2:B;0));"")`]);
+  }
+  aba.getRange(linhaInicial, 11, tamanhoDoLote, 1).setFormulas(matrizFormulasK);
+
   console.log(`✅ Lote finalizado em ${((new Date() - inicio) / 1000).toFixed(2)}s`);
 }
 

@@ -1,6 +1,4 @@
 const API_KEY = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-
-// COLOQUE O SEU MODELO AQUI
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${API_KEY}`;
 
 function gerarPinyinNumerico() {
@@ -10,26 +8,54 @@ function gerarPinyinNumerico() {
   const tamanhoDoLote = 5;
 
   const COLUNA_INICIAL = 3;
-  const QTD_COLUNAS = 6;
+  const QTD_COLUNAS = 12;
 
   const intervaloDados = aba.getRange(linhaInicial, COLUNA_INICIAL, tamanhoDoLote, QTD_COLUNAS);
   const valores = intervaloDados.getValues();
 
+  // Carrega STAGING uma vez para busca direta de frases
+  const stagingSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('STAGING');
+  const stagingData = stagingSheet ? stagingSheet.getDataRange().getValues() : [];
+
   let lotePinyin = [], indicesPinyin = [];
   let loteTraducao = [];
   let loteObsHanzi = [];
+  let loteObsFrase = [];
 
   for (let i = 0; i < valores.length; i++) {
     let hanzi = valores[i][0];
     let pinyinAcento = valores[i][1];
+
+    // ← adiciona aqui
+    console.log(`   Raw linha ${i}: col0="${hanzi}", col1="${pinyinAcento}"`);
+       
     if (!hanzi || !pinyinAcento) continue;
 
     if (valores[i][2] === "") { lotePinyin.push(pinyinAcento); indicesPinyin.push(i); }
     if (valores[i][3] === "") loteTraducao.push({ id_relativo: i, hanzi, pinyin: pinyinAcento });
     if (valores[i][5] === "") loteObsHanzi.push({ id_relativo: i, hanzi, pinyin: pinyinAcento });
+
+    // Busca frase diretamente na STAGING pelo ID (coluna B) + Hanzi (coluna C)
+    let idPalavra = String(aba.getRange(linhaInicial + i, 2).getValue());
+    let fraseHanzi = "";
+    for (let s = 1; s < stagingData.length; s++) {
+      if (String(stagingData[s][0]) === idPalavra && stagingData[s][1] === hanzi) {
+        fraseHanzi = stagingData[s][3]; // coluna D da STAGING
+        break;
+      }
+    }
+
+     // ← adiciona isso
+    console.log(`   Linha ${i}: hanzi=${hanzi}, id=${idPalavra}, fraseEncontrada=${fraseHanzi !== "" ? "SIM" : "NÃO"}, colN=${valores[i][11] === "" ? "vazia" : "preenchida"}`);
+
+    if (fraseHanzi && valores[i][11] === "") {
+      loteObsFrase.push({ id_relativo: i, frase_hanzi: fraseHanzi });
+    }
   }
 
-  // Monta requisições — obs_hanzi vai UMA POR PALAVRA para reduzir tokens por chamada
+
+
+  // Monta todas as requisições paralelas
   let requisoesParalelas = [];
   let mapaDeIndices = {};
 
@@ -43,11 +69,11 @@ function gerarPinyinNumerico() {
     mapaDeIndices.traducao = requisoesParalelas.length - 1;
   }
 
-  // ✅ CHAVE DA CORREÇÃO: uma request por palavra, todas no mesmo fetchAll
+  // Uma request por palavra para obs_hanzi
   if (loteObsHanzi.length > 0) {
     mapaDeIndices.obs = [];
     for (let i = 0; i < loteObsHanzi.length; i++) {
-      requisoesParalelas.push(montarRequestObsHanzi([loteObsHanzi[i]])); // array com 1 palavra
+      requisoesParalelas.push(montarRequestObsHanzi([loteObsHanzi[i]]));
       mapaDeIndices.obs.push({
         posicaoNaFila: requisoesParalelas.length - 1,
         id_relativo: loteObsHanzi[i].id_relativo
@@ -55,8 +81,32 @@ function gerarPinyinNumerico() {
     }
   }
 
-  if (requisoesParalelas.length === 0) return;
+  // Uma request por frase para obs_frase
+  if (loteObsFrase.length > 0) {
+    mapaDeIndices.obsFrase = [];
+    for (let i = 0; i < loteObsFrase.length; i++) {
+      requisoesParalelas.push(montarRequestObsFrase([loteObsFrase[i]]));
+      mapaDeIndices.obsFrase.push({
+        posicaoNaFila: requisoesParalelas.length - 1,
+        id_relativo: loteObsFrase[i].id_relativo
+      });
+    }
+  }
 
+  // Logs de diagnóstico
+  console.log(`📋 Varredura concluída:`);
+  console.log(`   lotePinyin: ${lotePinyin.length} itens`);
+  console.log(`   loteTraducao: ${loteTraducao.length} itens`);
+  console.log(`   loteObsHanzi: ${loteObsHanzi.length} itens`);
+  console.log(`   loteObsFrase: ${loteObsFrase.length} itens`);
+  console.log(`   STAGING carregada: ${stagingData.length - 1} linhas`);
+
+  if (requisoesParalelas.length === 0) {
+    console.log("ℹ️ Nada para processar — todas as colunas já estão preenchidas nas linhas selecionadas.");
+    return;
+  }
+
+  // Disparo único paralelo
   let respostas = [];
   try {
     console.log(`🚀 Disparando ${requisoesParalelas.length} requisições simultaneamente...`);
@@ -86,7 +136,7 @@ function gerarPinyinNumerico() {
     }
   }
 
-  // Processa Obs. Hanzi — uma resposta por palavra
+  // Processa Obs. Hanzi
   if (mapaDeIndices.obs) {
     for (let r = 0; r < mapaDeIndices.obs.length; r++) {
       let { posicaoNaFila, id_relativo } = mapaDeIndices.obs[r];
@@ -96,21 +146,31 @@ function gerarPinyinNumerico() {
     aba.getRange(linhaInicial, 8, tamanhoDoLote, 1).setValues(valores.map(l => [l[5]]));
   }
 
-  // Fórmulas Coluna G
-  let matrizFormulas = [];
-  for (let idx = 0; idx < tamanhoDoLote; idx++) {
-    matrizFormulas.push([`=SUBSTITUTE(F${linhaInicial + idx}; CHAR(10); "<br>")`]);
+  // Processa Obs. Frase
+  if (mapaDeIndices.obsFrase) {
+    for (let r = 0; r < mapaDeIndices.obsFrase.length; r++) {
+      let { posicaoNaFila, id_relativo } = mapaDeIndices.obsFrase[r];
+      let arr = extrairJsonObsFrase(respostas[posicaoNaFila]);
+      if (arr && arr[0]) valores[id_relativo][11] = arr[0].analise;
+    }
+    aba.getRange(linhaInicial, 14, tamanhoDoLote, 1).setValues(valores.map(l => [l[11]]));
   }
-  aba.getRange(linhaInicial, 7, tamanhoDoLote, 1).setFormulas(matrizFormulas);
+
+  // Fórmulas Coluna G
+  let matrizFormulasG = [];
+  for (let idx = 0; idx < tamanhoDoLote; idx++) {
+    matrizFormulasG.push([`=SUBSTITUTE(F${linhaInicial + idx};CHAR(10);"<br>")`]);
+  }
+  aba.getRange(linhaInicial, 7, tamanhoDoLote, 1).setFormulas(matrizFormulasG);
 
   // Fórmulas Coluna I
   let matrizFormulasI = [];
   for (let idx = 0; idx < tamanhoDoLote; idx++) {
-    matrizFormulasI.push([`=SUBSTITUTE(H${linhaInicial + idx}; CHAR(10); "<br>")`]);
+    matrizFormulasI.push([`=SUBSTITUTE(H${linhaInicial + idx};CHAR(10);"<br>")`]);
   }
   aba.getRange(linhaInicial, 9, tamanhoDoLote, 1).setFormulas(matrizFormulasI);
 
-  // Fórmulas Coluna J — busca frase de exemplo na STAGING
+  // Fórmulas Coluna J — frase Hanzi da STAGING
   let matrizFormulasJ = [];
   for (let idx = 0; idx < tamanhoDoLote; idx++) {
     let linha = linhaInicial + idx;
@@ -118,13 +178,28 @@ function gerarPinyinNumerico() {
   }
   aba.getRange(linhaInicial, 10, tamanhoDoLote, 1).setFormulas(matrizFormulasJ);
 
-  // Fórmulas Coluna K — busca frase furigana (Anki) da STAGING
+  // Fórmulas Coluna K — frase furigana (Anki) da STAGING
   let matrizFormulasK = [];
   for (let idx = 0; idx < tamanhoDoLote; idx++) {
     let linha = linhaInicial + idx;
     matrizFormulasK.push([`=IFERROR(INDEX(STAGING!G$2:G;MATCH(B${linha}&C${linha};STAGING!A$2:A&STAGING!B$2:B;0));"")`]);
   }
   aba.getRange(linhaInicial, 11, tamanhoDoLote, 1).setFormulas(matrizFormulasK);
+
+  // Fórmulas Coluna L — tradução da frase da STAGING
+  let matrizFormulasL = [];
+  for (let idx = 0; idx < tamanhoDoLote; idx++) {
+    let linha = linhaInicial + idx;
+    matrizFormulasL.push([`=IFERROR(INDEX(STAGING!F$2:F;MATCH(B${linha}&C${linha};STAGING!A$2:A&STAGING!B$2:B;0));"")`]);
+  }
+  aba.getRange(linhaInicial, 12, tamanhoDoLote, 1).setFormulas(matrizFormulasL);
+
+  // Fórmulas Coluna M — tradução da frase sem quebras de linha
+  let matrizFormulasM = [];
+  for (let idx = 0; idx < tamanhoDoLote; idx++) {
+    matrizFormulasM.push([`=SUBSTITUTE(L${linhaInicial + idx};CHAR(10);"<br>")`]);
+  }
+  aba.getRange(linhaInicial, 13, tamanhoDoLote, 1).setFormulas(matrizFormulasM);
 
   console.log(`✅ Lote finalizado em ${((new Date() - inicio) / 1000).toFixed(2)}s`);
 }
@@ -148,7 +223,7 @@ function montarRequestPinyin(listaDeTextos) {
   };
 
   return {
-    url: API_URL, // Já pega a URL fixa que você arrumar no topo do arquivo
+    url: API_URL,
     method: "post",
     contentType: "application/json",
     payload: JSON.stringify(payload),
@@ -168,6 +243,6 @@ function extrairJsonPinyin(respostaHttp) {
 }
 
 function formatarRegex(texto) {
-    if (!texto) return "";
-    return texto.replace(/(\d)(?=[a-zA-Z])/g, "$1 ").replace(/\s+/g, " ").trim();
+  if (!texto) return "";
+  return texto.replace(/(\d)(?=[a-zA-Z])/g, "$1 ").replace(/\s+/g, " ").trim();
 }

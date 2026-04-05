@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 12px;
+      background: #f8f9fa;
+    }
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-bottom: 10px;
+    }
+    .linha-info { font-size: 11px; color: #bbb; text-align: right; margin-bottom: 4px; }
+    .hanzi { font-size: 52px; text-align: center; color: #1a1a1a; margin: 4px 0; }
+    .pinyin { font-size: 15px; text-align: center; color: #666; margin-bottom: 12px; }
+    audio { width: 100%; margin: 4px 0; }
+    .status { font-size: 12px; color: #999; text-align: center; margin-top: 8px; }
+    .status.erro { color: #e53935; }
+    .status.ok { color: #43a047; }
+
+    .btn {
+      width: 100%;
+      padding: 9px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    .btn-regerar {
+      background: #1a73e8;
+      color: white;
+    }
+    .btn-regerar:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+    }
+
+    .alternativas { display: none; }
+    .alternativa-item {
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-bottom: 8px;
+    }
+    .alternativa-label {
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 6px;
+      font-weight: bold;
+    }
+    .btn-usar {
+      background: #43a047;
+      color: white;
+      padding: 6px;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .btn-usar:disabled { background: #aaa; cursor: not-allowed; }
+    .spinner { text-align: center; color: #1a73e8; font-size: 13px; padding: 8px; }
+  </style>
+</head>
+<body>
+
+  <!-- Player principal -->
+  <div class="card">
+    <div class="linha-info" id="linhaInfo">—</div>
+    <div class="hanzi" id="hanzi">—</div>
+    <div class="pinyin" id="pinyin">—</div>
+    <audio id="playerPrincipal" controls></audio>
+    <div class="status" id="status">Navegue pelas linhas da planilha...</div>
+    <button class="btn btn-regerar" id="btnRegerar" onclick="regerar()" disabled>
+      🔄 Regerar com outras vozes
+    </button>
+  </div>
+
+  <!-- Alternativas -->
+  <div class="alternativas" id="alternativas">
+    <div class="spinner" id="spinnerAlternativas" style="display:none">⏳ Gerando alternativas...</div>
+    <div id="listaAlternativas"></div>
+  </div>
+
+  <script>
+    let ultimaLinha = -1;
+    let linhaAtual = -1;
+
+    // ── Polling ──────────────────────────────────────────────────────
+    function poll() {
+      google.script.run
+        .withSuccessHandler(atualizarPlayer)
+        .withFailureHandler(erroGenerico)
+        .getDadosLinhaAtual();
+    }
+
+    function atualizarPlayer(dados) {
+      if (dados.linha === ultimaLinha) return;
+      ultimaLinha = dados.linha;
+      linhaAtual = dados.linha;
+
+      // Reseta alternativas ao mudar de linha
+      document.getElementById('alternativas').style.display = 'none';
+      document.getElementById('listaAlternativas').innerHTML = '';
+
+      document.getElementById('linhaInfo').textContent = 'Linha ' + dados.linha;
+      document.getElementById('hanzi').textContent = dados.hanzi || '—';
+      document.getElementById('pinyin').textContent = dados.pinyin || '—';
+
+      const player = document.getElementById('playerPrincipal');
+      const status = document.getElementById('status');
+      const btnRegerar = document.getElementById('btnRegerar');
+
+      if (!dados.hanzi) {
+        player.src = '';
+        status.textContent = 'Linha vazia.';
+        status.className = 'status';
+        btnRegerar.disabled = true;
+        return;
+      }
+
+      btnRegerar.disabled = false;
+
+      if (dados.status === 'sem_audio') {
+        player.src = '';
+        status.textContent = '⚠️ Áudio ainda não gerado.';
+        status.className = 'status erro';
+        return;
+      }
+
+      if (dados.status === 'arquivo_nao_encontrado') {
+        player.src = '';
+        status.textContent = '⚠️ Arquivo não encontrado no Drive.';
+        status.className = 'status erro';
+        return;
+      }
+
+      if (dados.audioBase64) {
+        player.src = 'data:audio/mpeg;base64,' + dados.audioBase64;
+        player.load();
+        player.play();
+        status.textContent = '✅ ' + (dados.nomeArquivo || '');
+        status.className = 'status ok';
+      }
+    }
+
+    // ── Regerar com alternativas ─────────────────────────────────────
+    function regerar() {
+      const btnRegerar = document.getElementById('btnRegerar');
+      const spinner = document.getElementById('spinnerAlternativas');
+      const alternativasDiv = document.getElementById('alternativas');
+      const lista = document.getElementById('listaAlternativas');
+
+      btnRegerar.disabled = true;
+      lista.innerHTML = '';
+      spinner.style.display = 'block';
+      alternativasDiv.style.display = 'block';
+
+      google.script.run
+        .withSuccessHandler(function(dados) {
+          spinner.style.display = 'none';
+          btnRegerar.disabled = false;
+
+          if (dados.erro) {
+            lista.innerHTML = `<div class="status erro">${dados.erro}</div>`;
+            return;
+          }
+
+          dados.alternativas.forEach(function(alt) {
+            const div = document.createElement('div');
+            div.className = 'alternativa-item';
+
+            if (!alt.base64) {
+              div.innerHTML = `<div class="alternativa-label">${alt.vozLabel}</div>
+                               <div class="status erro">${alt.erro}</div>`;
+            } else {
+              div.innerHTML = `
+                <div class="alternativa-label">${alt.vozLabel}</div>
+                <audio controls src="data:audio/mpeg;base64,${alt.base64}"></audio>
+                <button class="btn btn-usar" onclick="usarEste('${alt.vozId}', '${alt.base64}', this)">
+                  ✅ Usar este
+                </button>`;
+            }
+            lista.appendChild(div);
+          });
+        })
+        .withFailureHandler(function(err) {
+          spinner.style.display = 'none';
+          btnRegerar.disabled = false;
+          lista.innerHTML = `<div class="status erro">Erro: ${err.message}</div>`;
+        })
+        .gerarAudiosAlternativos(linhaAtual);
+    }
+
+    // ── Confirmar voz escolhida ──────────────────────────────────────
+    function usarEste(vozId, base64, btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Salvando...';
+
+      google.script.run
+        .withSuccessHandler(function(resultado) {
+          if (resultado.sucesso) {
+            // Atualiza player principal com o áudio escolhido
+            const player = document.getElementById('playerPrincipal');
+            player.src = 'data:audio/mpeg;base64,' + base64;
+            player.load();
+            player.play();
+            document.getElementById('status').textContent = '✅ ' + resultado.nomeArquivo;
+            document.getElementById('status').className = 'status ok';
+
+            // Esconde alternativas
+            document.getElementById('alternativas').style.display = 'none';
+            document.getElementById('listaAlternativas').innerHTML = '';
+
+            btn.textContent = '✅ Salvo!';
+          }
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = '✅ Usar este';
+          alert('Erro ao salvar: ' + err.message);
+        })
+        .confirmarVozEscolhida(linhaAtual, vozId, base64);
+    }
+
+    function erroGenerico(err) {
+      document.getElementById('status').textContent = 'Erro: ' + err.message;
+      document.getElementById('status').className = 'status erro';
+    }
+
+    // Polling a cada 1 segundo
+    setInterval(poll, 1000);
+    poll();
+  </script>
+</body>
+</html>

@@ -201,6 +201,13 @@ function gerarPinyinNumerico() {
   }
   aba.getRange(linhaInicial, 13, tamanhoDoLote, 1).setFormulas(matrizFormulasM);
 
+  // Fórmulas Coluna O — obs frase sem quebras de linha
+  let matrizFormulasO = [];
+  for (let idx = 0; idx < tamanhoDoLote; idx++) {
+    matrizFormulasO.push([`=SUBSTITUTE(N${linhaInicial + idx};CHAR(10);"<br>")`]);
+  }
+  aba.getRange(linhaInicial, 15, tamanhoDoLote, 1).setFormulas(matrizFormulasO);  
+
   console.log(`✅ Lote finalizado em ${((new Date() - inicio) / 1000).toFixed(2)}s`);
 }
 

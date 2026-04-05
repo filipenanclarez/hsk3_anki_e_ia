@@ -1,12 +1,17 @@
 /**
  * Módulo de Áudio - Geração TTS e Preview via Sidebar
  */
+const HSK_PROJECT_ID = '6a2c12b1-b1ea-44c3-805e-e55dfba29130';
 
 const VOZES = [
-  { id: 'cmn-CN-Wavenet-A', label: 'Wavenet A (feminina)' },
-  { id: 'cmn-CN-Wavenet-B', label: 'Wavenet B (masculina)' },
-  { id: 'cmn-CN-Wavenet-C', label: 'Wavenet C (feminina)' },
-  { id: 'cmn-CN-Wavenet-D', label: 'Wavenet D (masculina)' }
+  { id: 'cmn-CN-Wavenet-A', label: 'CN Wavenet A (feminina)' },
+  { id: 'cmn-CN-Wavenet-B', label: 'CN Wavenet B (masculina)' },
+  { id: 'cmn-CN-Wavenet-C', label: 'CN Wavenet C (masculina)' },
+  { id: 'cmn-CN-Wavenet-D', label: 'CN Wavenet D (feminina)' },
+  { id: 'cmn-TW-Wavenet-A', label: 'TW Wavenet A (feminina)' },
+  { id: 'cmn-TW-Wavenet-B', label: 'TW Wavenet B (masculina)' },
+  { id: 'cmn-TW-Wavenet-C', label: 'TW Wavenet C (masculina)' },
+  
 ];
 
 // ─── GERAÇÃO DE ÁUDIO EM LOTE ────────────────────────────────────────
@@ -29,11 +34,11 @@ function gerarAudioLote() {
 
   for (let i = 0; i < valores.length; i++) {
     let hanzi = valores[i][0];
-    let pinyinAcento = valores[i][1];
+    let pinyinNumerico = valores[i][2];  // Coluna E — já correto, gerado pelo Gemini
     let audioExistente = valores[i][13];
 
-    if (!hanzi || !pinyinAcento || pinyinAcento.toString().trim() === "") {
-      console.log(`   Linha ${i}: pulada (sem hanzi ou pinyin)`);
+    if (!hanzi || !pinyinNumerico || pinyinNumerico.toString().trim() === "") {
+      console.log(`   Linha ${i}: pulada (coluna E vazia — rode gerarPinyinNumerico primeiro)`);
       continue;
     }
     if (audioExistente && audioExistente.toString().trim() !== "") {
@@ -42,7 +47,7 @@ function gerarAudioLote() {
     }
 
     let pinyinSsml = converterAcentoParaNumero(pinyinAcento);
-    let ssml = `<speak><phoneme alphabet="pinyin" ph="${pinyinSsml.replace(/\s+/g, "")}">${hanzi}</phoneme></speak>`;
+    let ssml = `<speak><phoneme alphabet="pinyin" ph="${pinyinNumerico}">${hanzi}</phoneme></speak>`;
 
     console.log(`   Gerando áudio para ${hanzi} (${pinyinSsml}) com ${vozPadrao}...`);
     let audioBase64 = chamarGoogleTTS(ssml, TTS_API_KEY, vozPadrao, velocidade);
@@ -52,7 +57,7 @@ function gerarAudioLote() {
       continue;
     }
 
-    let nomeArquivo = `hsk_${pinyinSsml.replace(/\s+/g, "_")}.mp3`;
+    let nomeArquivo = `${HSK_PROJECT_ID}_${pinyinNumerico.replace(/\s+/g, "_")}.mp3`;
     salvarAudioNoDrive(folder, nomeArquivo, audioBase64);
     aba.getRange(linhaInicial + i, 16).setValue(`[sound:${nomeArquivo}]`);
     console.log(`   ✅ ${hanzi} → ${nomeArquivo}`);
@@ -65,19 +70,21 @@ function gerarAudioLote() {
 
 function gerarAudiosAlternativos(linha) {
   const aba = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const hanzi = aba.getRange(linha, 3).getValue();
-  const pinyinAcento = aba.getRange(linha, 4).getValue();
+  const hanzi = aba.getRange(linha, 3).getValue();          // Coluna C
+  const pinyin = aba.getRange(linha, 4).getValue();         // Coluna D — só para exibir na sidebar
+  const pinyinNumerico = aba.getRange(linha, 5).getValue(); // Coluna E — para o SSML
 
-  if (!hanzi || !pinyinAcento) return { erro: "Linha sem hanzi ou pinyin." };
+  if (!hanzi || !pinyinNumerico || pinyinNumerico.toString().trim() === "") {
+    return { erro: "Pinyin numérico ausente na coluna E. Rode gerarPinyinNumerico primeiro." };
+  }
 
   const TTS_API_KEY = PropertiesService.getScriptProperties().getProperty('TTS_API_KEY');
   const velocidade = parseFloat(PropertiesService.getScriptProperties().getProperty('TTS_SPEED') || '0.85');
-  const pinyinSsml = converterAcentoParaNumero(pinyinAcento);
-  const ssml = `<speak><phoneme alphabet="pinyin" ph="${pinyinSsml.replace(/\s+/g, "")}">${hanzi}</phoneme></speak>`;
+  const ssml = `<speak><phoneme alphabet="pinyin" ph="${pinyinNumerico}">${hanzi}</phoneme></speak>`;
 
   let alternativas = [];
   for (let v of VOZES) {
-    console.log(`   Gerando alternativa ${v.id} para ${hanzi}...`);
+    console.log(`   Gerando alternativa ${v.id} para ${hanzi} (${pinyinNumerico})...`);
     let base64 = chamarGoogleTTS(ssml, TTS_API_KEY, v.id, velocidade);
     alternativas.push({
       vozId: v.id,
@@ -87,7 +94,7 @@ function gerarAudiosAlternativos(linha) {
     });
   }
 
-  return { hanzi, pinyin: pinyinAcento, pinyinSsml, alternativas };
+  return { hanzi, pinyin, pinyinNumerico, alternativas };
 }
 
 // ─── CONFIRMAÇÃO DA VOZ ESCOLHIDA (chamada pela sidebar) ─────────────
@@ -100,7 +107,7 @@ function confirmarVozEscolhida(linha, vozId, base64) {
   const FOLDER_ID = PropertiesService.getScriptProperties().getProperty('AUDIO_FOLDER_ID');
   const folder = DriveApp.getFolderById(FOLDER_ID);
 
-  let nomeArquivo = `hsk_${pinyinSsml.replace(/\s+/g, "_")}.mp3`;
+  let nomeArquivo = `${HSK_PROJECT_ID}_${pinyinNumerico.replace(/\s+/g, "_")}.mp3`;
   salvarAudioNoDrive(folder, nomeArquivo, base64);
   aba.getRange(linha, 16).setValue(`[sound:${nomeArquivo}]`);
 
@@ -180,31 +187,6 @@ function salvarAudioNoDrive(folder, nomeArquivo, base64) {
   if (existentes.hasNext()) existentes.next().setTrashed(true);
   let blob = Utilities.newBlob(Utilities.base64Decode(base64), "audio/mpeg", nomeArquivo);
   folder.createFile(blob);
-}
-
-function converterAcentoParaNumero(pinyin) {
-  const mapaVogais = {
-    'ā':'a1','á':'a2','ǎ':'a3','à':'a4',
-    'ē':'e1','é':'e2','ě':'e3','è':'e4',
-    'ī':'i1','í':'i2','ǐ':'i3','ì':'i4',
-    'ō':'o1','ó':'o2','ǒ':'o3','ò':'o4',
-    'ū':'u1','ú':'u2','ǔ':'u3','ù':'u4',
-    'ǖ':'v1','ǘ':'v2','ǚ':'v3','ǜ':'v4',
-    'ü':'v'
-  };
-
-  return pinyin.split(/\s+/).map(silaba => {
-    let resultado = silaba;
-    let tom = '';
-    for (let [acento, substituicao] of Object.entries(mapaVogais)) {
-      if (resultado.includes(acento)) {
-        tom = substituicao.slice(-1);
-        resultado = resultado.replace(acento, substituicao.slice(0, -1));
-        break;
-      }
-    }
-    return resultado + tom;
-  }).join(' ');
 }
 
 // ─── MENU ────────────────────────────────────────────────────────────

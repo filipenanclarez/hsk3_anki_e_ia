@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 15px; background: #f4f7f9; }
+    .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-top: 4px solid #4285f4; }
+    h3 { margin: 0 0 10px 0; color: #333; font-size: 18px; }
+    #status { font-size: 13px; color: #666; margin-bottom: 15px; min-height: 1.2em; }
+    audio { width: 100%; border-radius: 5px; }
+    .loader { color: #4285f4; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h3>IA Audio Sync</h3>
+    <div id="status">Aguardando seleção...</div>
+    <audio id="player" controls></audio>
+  </div>
+
+  <script>
+    var ultimoUrl = "";
+    var player = document.getElementById('player');
+    var statusDiv = document.getElementById('status');
+
+    function formatarUrlDrive(url) {
+      if (!url) return "";
+      var fileId = "";
+      // Suporta links de compartilhamento e links diretos
+      var match = url.match(/[-\w]{25,}/);
+      fileId = match ? match[0] : "";
+      return "https://docs.google.com/uc?export=download&id=" + fileId;
+    }
+
+    // Função de checagem cíclica (Executa no lado do cliente)
+    function verificarSelecao() {
+      google.script.run
+        .withSuccessHandler(function(url) {
+          if (url && url !== ultimoUrl) {
+            ultimoUrl = url;
+            var directLink = formatarUrlDrive(url);
+            player.src = directLink;
+            player.play().catch(e => console.log("Autoplay bloqueado: aguardando interação."));
+            statusDiv.innerHTML = "<span>Reproduzindo áudio...</span>";
+          } else if (!url) {
+            // Se clicar em célula vazia, podemos manter o áudio anterior ou limpar
+            // statusDiv.innerText = "Selecione um link de áudio.";
+          }
+        })
+        .getSelectedCellValue();
+    }
+
+    // Verifica a cada 1 segundo (Polling de baixo impacto)
+    setInterval(verificarSelecao, 1000);
+  </script>
+</body>
+</html>

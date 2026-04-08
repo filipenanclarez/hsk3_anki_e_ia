@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #f8f9fa; padding: 16px; }
+
+    .card {
+      background: white; border-radius: 8px; padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 12px;
+    }
+    .hanzi  { font-size: 56px; text-align: center; color: #1a1a1a; margin: 4px 0; }
+    .pinyin { font-size: 15px; text-align: center; color: #666; margin-bottom: 12px; }
+    audio   { width: 100%; margin: 8px 0; }
+
+    .status { font-size: 12px; text-align: center; margin-top: 6px; }
+    .status.ok      { color: #43a047; }
+    .status.erro    { color: #e53935; }
+    .status.loading { color: #1a73e8; }
+
+    .btns { display: flex; gap: 8px; margin-top: 10px; }
+    .btn {
+      flex: 1; padding: 9px; border: none; border-radius: 6px;
+      cursor: pointer; font-size: 13px; font-weight: bold;
+    }
+    .btn:disabled { background: #ddd; color: #999; cursor: not-allowed; }
+    .btn-fechar  { background: #eee; color: #333; }
+    .btn-regerar { background: #f57c00; color: white; }
+
+    .previews { display: none; margin-top: 12px; }
+    .preview-item {
+      background: white; border-radius: 8px; padding: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 8px;
+    }
+    .preview-label { font-size: 12px; color: #555; font-weight: bold; margin-bottom: 4px; }
+    .btn-usar {
+      width: 100%; background: #43a047; color: white; padding: 7px;
+      font-size: 12px; margin-top: 6px; border: none;
+      border-radius: 6px; cursor: pointer; font-weight: bold;
+    }
+    .btn-usar:disabled { background: #aaa; cursor: not-allowed; }
+    .btn-usar.salvo { background: #1b5e20; }
+    .spinner { text-align: center; color: #f57c00; padding: 12px; font-size: 13px; }
+    .sem-audio { text-align: center; color: #e53935; font-size: 13px; padding: 12px 0; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div class="hanzi"><?= hanzi ?></div>
+    <div class="pinyin"><?= pinyin ?></div>
+
+    <? if (temAudio) { ?>
+      <audio id="playerPrincipal" controls></audio>
+      <div class="status ok" id="status">✅ <?= nomeDefinitivo ?></div>
+    <? } else { ?>
+      <div class="sem-audio">⚠️ Áudio não gerado. Use "Gerar Áudios Hanzi (lote)" primeiro.</div>
+      <div class="status" id="status"></div>
+    <? } ?>
+
+    <div class="btns">
+      <button class="btn btn-fechar"  onclick="google.script.host.close()">Fechar</button>
+      <button class="btn btn-regerar" id="btnRegerar" onclick="carregarPreviews()">🔄 Outras vozes</button>
+    </div>
+  </div>
+
+  <div class="previews" id="previews">
+    <div class="spinner" id="spinner" style="display:none">⏳ Gerando previews...</div>
+    <div id="listaPreviews"></div>
+  </div>
+
+  <script>
+    var LINHA              = <?= linha ?>;
+    var previewsCarregados = false;
+    var cacheBase64        = {};
+
+    // Injeta base64 do definitivo já na abertura — sem chamada extra ao servidor
+    <? if (temAudio) { ?>
+    (function() {
+      var player = document.getElementById('playerPrincipal');
+      player.src = 'data:audio/mpeg;base64,<?= audioBase64 ?>';
+      player.load();
+    })();
+    <? } ?>
+
+    // ── Previews ─────────────────────────────────────────────────────
+    function carregarPreviews() {
+      // Se já carregou, só mostra
+      if (previewsCarregados) {
+        document.getElementById('previews').style.display = 'block';
+        return;
+      }
+
+      var btnReg   = document.getElementById('btnRegerar');
+      var spinner  = document.getElementById('spinner');
+      var lista    = document.getElementById('listaPreviews');
+      var previews = document.getElementById('previews');
+
+      btnReg.disabled = true;
+      spinner.style.display = 'block';
+      previews.style.display = 'block';
+      lista.innerHTML = '';
+
+      google.script.run
+        .withSuccessHandler(function(dados) {
+          spinner.style.display = 'none';
+          btnReg.disabled = false;
+
+          if (dados.erro) {
+            lista.innerHTML = '<div class="status erro">' + dados.erro + '</div>';
+            return;
+          }
+
+          dados.previews.forEach(function(p) {
+            var div = document.createElement('div');
+            div.className = 'preview-item';
+
+            if (!p.base64) {
+              div.innerHTML = '<div class="preview-label">' + p.vozLabel + '</div>'
+                + '<div class="status erro">' + (p.erro || 'Falha ao gerar') + '</div>';
+            } else {
+              cacheBase64[p.sufixo] = p.base64;
+              div.innerHTML = '<div class="preview-label">' + p.vozLabel + '</div>'
+                + '<audio controls src="data:audio/mpeg;base64,' + p.base64 + '"></audio>'
+                + '<button class="btn-usar" id="usar-' + p.sufixo + '" '
+                + 'onclick="usarEste(\'' + p.sufixo + '\', this)">✅ Usar este</button>';
+            }
+            lista.appendChild(div);
+          });
+
+          previewsCarregados = true;
+        })
+        .withFailureHandler(function(err) {
+          spinner.style.display = 'none';
+          btnReg.disabled = false;
+          lista.innerHTML = '<div class="status erro">Erro: ' + err.message + '</div>';
+        })
+        .gerarPreviewsHanzi(LINHA);
+    }
+
+    // ── Confirmar voz escolhida ───────────────────────────────────────
+    function usarEste(sufixo, btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Salvando...';
+
+      google.script.run
+        .withSuccessHandler(function(resultado) {
+          if (resultado.sucesso) {
+            // Atualiza player principal com o base64 do preview escolhido
+            var base64Escolhido = cacheBase64[sufixo];
+            if (base64Escolhido) {
+              var player = document.getElementById('playerPrincipal');
+              if (player) {
+                player.src = 'data:audio/mpeg;base64,' + base64Escolhido;
+                player.load();
+              }
+            }
+
+            document.getElementById('status').textContent = '✅ ' + resultado.nomeDefinitivo;
+            document.getElementById('status').className = 'status ok';
+
+            btn.textContent = '✅ Salvo!';
+            btn.className = 'btn-usar salvo';
+          }
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          btn.textContent = '✅ Usar este';
+          alert('Erro ao salvar: ' + err.message);
+        })
+        .confirmarVozHanzi(LINHA, sufixo);
+    }
+  </script>
+</body>
+</html>

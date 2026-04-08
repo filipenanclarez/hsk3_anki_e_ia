@@ -107,8 +107,6 @@ function gerarAudioHanziLote() {
     }
 
     let arquivo = salvarAudioNoDrive(folder, nomeDefinitivo, audioBase64);
-    //arquivo.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
     aba.getRange(linhaInicial + i, 16).setValue(`[sound:${nomeDefinitivo}]`); // P
     aba.getRange(linhaInicial + i, 18).setValue(arquivo.getId());              // R
     console.log(`   ✅ ${hanzi} → ${nomeDefinitivo} (ID: ${arquivo.getId()})`);
@@ -121,18 +119,18 @@ function gerarAudioHanziLote() {
 
 function gerarPreviewsHanzi(linha) {
   const aba            = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const hanzi          = aba.getRange(linha, 3).getValue(); // C
-  const pinyinNumerico = aba.getRange(linha, 5).getValue(); // E
+  const hanzi          = aba.getRange(linha, 3).getValue();  // C
+  const pinyinNumerico = aba.getRange(linha, 5).getValue();  // E
   const idsSalvos      = aba.getRange(linha, 17).getValue(); // Q
 
   if (!hanzi || !pinyinNumerico || pinyinNumerico.toString().trim() === '') {
     return { erro: 'Pinyin numérico ausente. Rode gerarPinyinNumerico primeiro.' };
   }
 
-  const TTS_API_KEY = PropertiesService.getScriptProperties().getProperty('TTS_API_KEY');
-  const FOLDER_ID   = PropertiesService.getScriptProperties().getProperty('AUDIO_FOLDER_ID');
-  const folder      = DriveApp.getFolderById(FOLDER_ID);
-  const velocidade  = parseFloat(PropertiesService.getScriptProperties().getProperty('TTS_SPEED') || '0.85');
+  const TTS_API_KEY    = PropertiesService.getScriptProperties().getProperty('TTS_API_KEY');
+  const PREVIEWS_FOLDER_ID = PropertiesService.getScriptProperties().getProperty('AUDIO_PREVIEWS_FOLDER_ID');
+  const folderPreviews = DriveApp.getFolderById(PREVIEWS_FOLDER_ID);
+  const velocidade     = parseFloat(PropertiesService.getScriptProperties().getProperty('TTS_SPEED') || '0.85');
 
   let nomeBase = `${HSK_PROJECT_ID}_${pinyinNumerico.replace(/\s+/g, '_')}`;
   let ssml     = `<speak><phoneme alphabet="pinyin" ph="${pinyinNumerico}">${hanzi}</phoneme></speak>`;
@@ -146,8 +144,8 @@ function gerarPreviewsHanzi(linha) {
     });
   }
 
-  let previews     = [];
-  let mapaIdsNovo  = { ...mapaIds };
+  let previews    = [];
+  let mapaIdsNovo = { ...mapaIds };
 
   for (let v of VOZES) {
     let nomeArquivo = `${nomeBase}_${v.sufixo}.mp3`;
@@ -166,24 +164,21 @@ function gerarPreviewsHanzi(linha) {
       continue;
     }
 
-    // Gera novo
+    // Gera novo e salva na pasta de previews
     console.log(`   Gerando preview ${v.id} para ${hanzi}...`);
     let base64 = chamarGoogleTTS(ssml, TTS_API_KEY, v.id, velocidade);
 
     if (!base64) {
-      console.log(`   ⚠️ Falha no TTS para ${v.id}. SSML: ${ssml}`);
-      previews.push({ sufixo: v.sufixo, vozLabel: v.label, id: null, nomeArquivo, erro: 'Falha ao gerar' });
+      console.log(`   ⚠️ Falha no TTS para ${v.id}`);
+      previews.push({ sufixo: v.sufixo, vozLabel: v.label, base64: null, nomeArquivo, erro: 'Falha ao gerar' });
       continue;
     }
 
-    let arquivo = salvarAudioNoDrive(folder, nomeArquivo, base64);
-    //arquivo.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    let arquivo = salvarAudioNoDrive(folderPreviews, nomeArquivo, base64);
     mapaIdsNovo[v.sufixo] = arquivo.getId();
 
-    previews.push({
-      sufixo: v.sufixo, vozLabel: v.label,
-      id: arquivo.getId(), nomeArquivo, gerado: true
-    });
+    let base64Final = Utilities.base64Encode(Utilities.base64Decode(base64));
+    previews.push({ sufixo: v.sufixo, vozLabel: v.label, base64: base64Final, nomeArquivo, gerado: true });
   }
 
   // Salva IDs na coluna Q no formato "sufixo:id|sufixo:id|..."
@@ -199,11 +194,12 @@ function confirmarVozHanzi(linha, sufixo) {
   const aba            = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const pinyinNumerico = aba.getRange(linha, 5).getValue();  // E
   const idsSalvos      = aba.getRange(linha, 17).getValue(); // Q
+  const idAnterior     = aba.getRange(linha, 18).getValue(); // R
 
-  const FOLDER_ID = PropertiesService.getScriptProperties().getProperty('AUDIO_FOLDER_ID');
-  const folder    = DriveApp.getFolderById(FOLDER_ID);
+  const FOLDER_ID     = PropertiesService.getScriptProperties().getProperty('AUDIO_FOLDER_ID');
+  const folderDefinitivos = DriveApp.getFolderById(FOLDER_ID);
 
-  // Encontra o ID do preview escolhido
+  // Encontra ID do preview escolhido
   let idPreview = null;
   if (idsSalvos && idsSalvos.toString().trim() !== '') {
     idsSalvos.toString().split('|').forEach(par => {
@@ -216,18 +212,19 @@ function confirmarVozHanzi(linha, sufixo) {
 
   let nomeDefinitivo = `${HSK_PROJECT_ID}_${pinyinNumerico.replace(/\s+/g, '_')}.mp3`;
 
-  // Copia o preview como definitivo
+  // Remove definitivo anterior da pasta definitivos
+  if (idAnterior && idAnterior.toString().trim() !== '') {
+    try { DriveApp.getFileById(idAnterior.toString()).setTrashed(true); }
+    catch(e) { console.log('Aviso ao remover anterior: ' + e.message); }
+  }
+
+  // Copia preview para pasta definitivos
   let arquivoPreview = DriveApp.getFileById(idPreview);
   let blob = arquivoPreview.getBlob().copyBlob();
   blob.setName(nomeDefinitivo);
+  let novoArquivo = folderDefinitivos.createFile(blob);
 
-  // Remove definitivo anterior se existir
-  let existentes = folder.getFilesByName(nomeDefinitivo);
-  if (existentes.hasNext()) existentes.next().setTrashed(true);
-
-  let novoArquivo = folder.createFile(blob);
-  //novoArquivo.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
+  // Atualiza P e R
   aba.getRange(linha, 16).setValue(`[sound:${nomeDefinitivo}]`); // P
   aba.getRange(linha, 18).setValue(novoArquivo.getId());          // R
 

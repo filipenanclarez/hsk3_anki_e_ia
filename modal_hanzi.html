@@ -75,7 +75,7 @@
     var previewsCarregados = false;
     var cacheBase64        = {};
 
-    // Injeta base64 do definitivo já na abertura — sem chamada extra ao servidor
+    // Injeta base64 do definitivo já na abertura
     <? if (temAudio) { ?>
     (function() {
       var player = document.getElementById('playerPrincipal');
@@ -84,9 +84,7 @@
     })();
     <? } ?>
 
-    // ── Previews ─────────────────────────────────────────────────────
     function carregarPreviews() {
-      // Se já carregou, só mostra
       if (previewsCarregados) {
         document.getElementById('previews').style.display = 'block';
         return;
@@ -139,7 +137,6 @@
         .gerarPreviewsHanzi(LINHA);
     }
 
-    // ── Confirmar voz escolhida ───────────────────────────────────────
     function usarEste(sufixo, btn) {
       btn.disabled = true;
       btn.textContent = '⏳ Salvando...';
@@ -147,21 +144,11 @@
       google.script.run
         .withSuccessHandler(function(resultado) {
           if (resultado.sucesso) {
-            // Atualiza player principal com o base64 do preview escolhido
-            var base64Escolhido = cacheBase64[sufixo];
-            if (base64Escolhido) {
-              var player = document.getElementById('playerPrincipal');
-              if (player) {
-                player.src = 'data:audio/mpeg;base64,' + base64Escolhido;
-                player.load();
-              }
-            }
-
-            document.getElementById('status').textContent = '✅ ' + resultado.nomeDefinitivo;
-            document.getElementById('status').className = 'status ok';
-
-            btn.textContent = '✅ Salvo!';
-            btn.className = 'btn-usar salvo';
+            google.script.host.close();
+          } else {
+            btn.disabled = false;
+            btn.textContent = '✅ Usar este';
+            alert('Erro: ' + resultado.erro);
           }
         })
         .withFailureHandler(function(err) {

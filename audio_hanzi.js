@@ -20,6 +20,7 @@ function abrirModalAudioHanzi() {
   const aba   = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   const linha = aba.getActiveCell().getRow();
 
+  const indiceGeral    = aba.getRange(linha, 1).getValue();  // A
   const hanzi          = aba.getRange(linha, 3).getValue();  // C
   const pinyin         = aba.getRange(linha, 4).getValue();  // D
   const pinyinNumerico = aba.getRange(linha, 5).getValue();  // E
@@ -35,7 +36,6 @@ function abrirModalAudioHanzi() {
     ? audioTag.toString().replace('[sound:', '').replace(']', '')
     : '';
 
-  // Busca base64 do áudio definitivo antes de abrir o modal
   let audioBase64 = '';
   if (idDefinitivo && idDefinitivo.toString().trim() !== '') {
     try {
@@ -68,7 +68,7 @@ function abrirModalAudioHanzi() {
 function gerarAudioHanziLote() {
   const inicio = new Date();
   const aba    = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  const linhaInicial = aba.getActiveCell().getRow();
+  const linhaInicial  = aba.getActiveCell().getRow();
   const tamanhoDoLote = 5;
 
   const TTS_API_KEY = PropertiesService.getScriptProperties().getProperty('TTS_API_KEY');
@@ -77,14 +77,16 @@ function gerarAudioHanziLote() {
   const vozPadrao   = PropertiesService.getScriptProperties().getProperty('TTS_VOICE') || 'cmn-CN-Wavenet-A';
   const velocidade  = parseFloat(PropertiesService.getScriptProperties().getProperty('TTS_SPEED') || '0.85');
 
-  const valores = aba.getRange(linhaInicial, 3, tamanhoDoLote, 16).getValues();
+  // Range começa na coluna A (1), 18 colunas até R
+  const valores = aba.getRange(linhaInicial, 1, tamanhoDoLote, 18).getValues();
 
   console.log(`Linha inicial: ${linhaInicial}`);
 
   for (let i = 0; i < valores.length; i++) {
-    let hanzi          = valores[i][0];  // C
-    let pinyinNumerico = valores[i][2];  // E
-    let idDefinitivo   = valores[i][15]; // R
+    let indiceGeral    = valores[i][0];  // A
+    let hanzi          = valores[i][2];  // C
+    let pinyinNumerico = valores[i][4];  // E
+    let idDefinitivo   = valores[i][17]; // R
 
     if (!hanzi || !pinyinNumerico || pinyinNumerico.toString().trim() === '') {
       console.log(`   Linha ${i}: pulada (rode gerarPinyinNumerico primeiro)`);
@@ -95,7 +97,7 @@ function gerarAudioHanziLote() {
       continue;
     }
 
-    let nomeDefinitivo = `${HSK_PROJECT_ID}_${pinyinNumerico.replace(/\s+/g, '_')}.mp3`;
+    let nomeDefinitivo = `${HSK_PROJECT_ID}_idx${indiceGeral}_${pinyinNumerico.replace(/\s+/g, '_')}.mp3`;
     let ssml = `<speak><phoneme alphabet="pinyin" ph="${pinyinNumerico}">${hanzi}</phoneme></speak>`;
 
     console.log(`   Gerando áudio para ${hanzi} (${pinyinNumerico}) com ${vozPadrao}...`);
@@ -119,6 +121,7 @@ function gerarAudioHanziLote() {
 
 function gerarPreviewsHanzi(linha) {
   const aba            = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const indiceGeral    = aba.getRange(linha, 1).getValue();  // A
   const hanzi          = aba.getRange(linha, 3).getValue();  // C
   const pinyinNumerico = aba.getRange(linha, 5).getValue();  // E
   const idsSalvos      = aba.getRange(linha, 17).getValue(); // Q
@@ -127,12 +130,12 @@ function gerarPreviewsHanzi(linha) {
     return { erro: 'Pinyin numérico ausente. Rode gerarPinyinNumerico primeiro.' };
   }
 
-  const TTS_API_KEY    = PropertiesService.getScriptProperties().getProperty('TTS_API_KEY');
+  const TTS_API_KEY        = PropertiesService.getScriptProperties().getProperty('TTS_API_KEY');
   const PREVIEWS_FOLDER_ID = PropertiesService.getScriptProperties().getProperty('AUDIO_PREVIEWS_FOLDER_ID');
-  const folderPreviews = DriveApp.getFolderById(PREVIEWS_FOLDER_ID);
-  const velocidade     = parseFloat(PropertiesService.getScriptProperties().getProperty('TTS_SPEED') || '0.85');
+  const folderPreviews     = DriveApp.getFolderById(PREVIEWS_FOLDER_ID);
+  const velocidade         = parseFloat(PropertiesService.getScriptProperties().getProperty('TTS_SPEED') || '0.85');
 
-  let nomeBase = `${HSK_PROJECT_ID}_${pinyinNumerico.replace(/\s+/g, '_')}`;
+  let nomeBase = `${HSK_PROJECT_ID}_idx${indiceGeral}_${pinyinNumerico.replace(/\s+/g, '_')}`;
   let ssml     = `<speak><phoneme alphabet="pinyin" ph="${pinyinNumerico}">${hanzi}</phoneme></speak>`;
 
   // Mapa de IDs já salvos: { sufixo: id }
@@ -192,11 +195,12 @@ function gerarPreviewsHanzi(linha) {
 
 function confirmarVozHanzi(linha, sufixo) {
   const aba            = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const indiceGeral    = aba.getRange(linha, 1).getValue();  // A
   const pinyinNumerico = aba.getRange(linha, 5).getValue();  // E
   const idsSalvos      = aba.getRange(linha, 17).getValue(); // Q
   const idAnterior     = aba.getRange(linha, 18).getValue(); // R
 
-  const FOLDER_ID     = PropertiesService.getScriptProperties().getProperty('AUDIO_FOLDER_ID');
+  const FOLDER_ID         = PropertiesService.getScriptProperties().getProperty('AUDIO_FOLDER_ID');
   const folderDefinitivos = DriveApp.getFolderById(FOLDER_ID);
 
   // Encontra ID do preview escolhido
@@ -210,9 +214,9 @@ function confirmarVozHanzi(linha, sufixo) {
 
   if (!idPreview) return { sucesso: false, erro: 'ID do preview não encontrado.' };
 
-  let nomeDefinitivo = `${HSK_PROJECT_ID}_${pinyinNumerico.replace(/\s+/g, '_')}.mp3`;
+  let nomeDefinitivo = `${HSK_PROJECT_ID}_idx${indiceGeral}_${pinyinNumerico.replace(/\s+/g, '_')}.mp3`;
 
-  // Remove definitivo anterior da pasta definitivos
+  // Remove definitivo anterior
   if (idAnterior && idAnterior.toString().trim() !== '') {
     try { DriveApp.getFileById(idAnterior.toString()).setTrashed(true); }
     catch(e) { console.log('Aviso ao remover anterior: ' + e.message); }
